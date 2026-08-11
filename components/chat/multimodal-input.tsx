@@ -129,6 +129,7 @@ export function MultimodalInput({
                   {chatModels.map((model) => (
                     <ModelSelectorItem
                       key={model.id}
+                      data-checked={selectedModelId === model.id || undefined}
                       onSelect={() => {
                         setModelSelectorOpen(false);
                         onModelChange(model.id);
