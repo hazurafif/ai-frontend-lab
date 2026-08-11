@@ -15,7 +15,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import type { Popover as PopoverPrimitive } from "radix-ui";
+import type { Popover as PopoverPrimitive } from "@base-ui/react/popover";
 import { cn } from "@/lib/utils";
 
 export type ModelSelectorProps = React.ComponentProps<typeof PopoverPrimitive.Root>;

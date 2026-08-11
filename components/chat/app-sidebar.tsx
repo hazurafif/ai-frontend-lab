@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  LogOutIcon,
   MessageSquareIcon,
   MoonIcon,
   PanelLeftIcon,
@@ -30,6 +31,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { useActiveChat } from "@/hooks/use-active-chat";
+import { useAuth } from "@/hooks/use-auth";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -40,13 +42,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "../ui/alert-dialog";
-import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 
 export function AppSidebar() {
   const router = useRouter();
   const { setOpenMobile, toggleSidebar } = useSidebar();
   const { resolvedTheme, setTheme } = useTheme();
   const { deleteAllChats } = useActiveChat();
+  const { user, logout } = useAuth();
   const [mounted, setMounted] = useState(false);
   const [showDeleteAllDialog, setShowDeleteAllDialog] = useState(false);
 
@@ -82,6 +84,11 @@ export function AppSidebar() {
     setTheme(resolvedTheme === "dark" ? "light" : "dark");
   }, [resolvedTheme, setTheme]);
 
+  const handleLogout = useCallback(() => {
+    logout();
+    router.push("/login");
+  }, [logout, router]);
+
   return (
     <>
       <Sidebar collapsible="icon">
@@ -90,27 +97,23 @@ export function AppSidebar() {
             <SidebarMenuItem className="flex flex-row items-center justify-between">
               <div className="group/logo relative flex items-center justify-center">
                 <SidebarMenuButton
-                  asChild
                   className="size-8 !px-0 items-center justify-center group-data-[collapsible=icon]:group-hover/logo:opacity-0"
+                  render={<Link href="/" onClick={closeMobile} />}
                   tooltip="Chatbot"
                 >
-                  <Link href="/" onClick={closeMobile}>
-                    <MessageSquareIcon className="size-4 text-sidebar-foreground/50" />
-                  </Link>
+                  <MessageSquareIcon className="size-4 text-sidebar-foreground/50" />
                 </SidebarMenuButton>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <SidebarMenuButton
-                      className="pointer-events-none absolute inset-0 size-8 opacity-0 group-data-[collapsible=icon]:pointer-events-auto group-data-[collapsible=icon]:group-hover/logo:opacity-100"
-                      onClick={handleToggleSidebar}
-                    >
-                      <PanelLeftIcon className="size-4" />
-                    </SidebarMenuButton>
-                  </TooltipTrigger>
-                  <TooltipContent className="hidden md:block" side="right">
-                    Open sidebar
-                  </TooltipContent>
-                </Tooltip>
+                <SidebarMenuButton
+                  className="pointer-events-none absolute inset-0 size-8 opacity-0 group-data-[collapsible=icon]:pointer-events-auto group-data-[collapsible=icon]:group-hover/logo:opacity-100"
+                  onClick={handleToggleSidebar}
+                  tooltip={{
+                    children: "Open sidebar",
+                    className: "hidden md:block",
+                    side: "right",
+                  }}
+                >
+                  <PanelLeftIcon className="size-4" />
+                </SidebarMenuButton>
               </div>
               <div className="group-data-[collapsible=icon]:hidden">
                 <SidebarTrigger className="text-sidebar-foreground/60 transition-colors duration-150 hover:text-sidebar-foreground" />
@@ -151,14 +154,12 @@ export function AppSidebar() {
           <SidebarMenu>
             <SidebarMenuItem>
               <SidebarMenuButton
-                asChild
                 className="h-8 rounded-lg text-sidebar-foreground/60 transition-colors duration-150 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+                render={<Link href="/settings" onClick={closeMobile} />}
                 tooltip="Settings"
               >
-                <Link href="/settings" onClick={closeMobile}>
-                  <SettingsIcon className="size-4" />
-                  <span className="text-[13px]">Settings</span>
-                </Link>
+                <SettingsIcon className="size-4" />
+                <span className="text-[13px]">Settings</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
             <SidebarMenuItem>
@@ -173,6 +174,18 @@ export function AppSidebar() {
                   <MoonIcon className="size-4" />
                 )}
                 <span className="text-[13px]">Toggle theme</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                className="h-8 rounded-lg text-sidebar-foreground/60 transition-colors duration-150 hover:bg-destructive/10 hover:text-destructive"
+                onClick={handleLogout}
+                tooltip="Sign out"
+              >
+                <LogOutIcon className="size-4" />
+                <span className="text-[13px]">
+                  {mounted && user ? `Sign out (${user.username})` : "Sign out"}
+                </span>
               </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>

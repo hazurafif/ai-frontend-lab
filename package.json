@@ -26,7 +26,6 @@
     "motion": "^12.42.2",
     "next": "16.2.10",
     "next-themes": "^0.3.0",
-    "radix-ui": "^1.6.1",
     "react": "19.2.7",
     "react-dom": "19.2.7",
     "sonner": "^2.0.7",

@@ -107,18 +107,20 @@ export function MultimodalInput({
             onOpenChange={setModelSelectorOpen}
             open={modelSelectorOpen}
           >
-            <ModelSelectorTrigger asChild>
-              <Button
-                aria-label="Select model"
-                className="text-muted-foreground/70 hover:text-foreground"
-                size="icon-sm"
-                title={selectedModel?.name ?? selectedModelId}
-                type="button"
-                variant="ghost"
-              >
-                <SparklesIcon size={14} />
-              </Button>
-            </ModelSelectorTrigger>
+            <ModelSelectorTrigger
+              render={
+                <Button
+                  aria-label="Select model"
+                  className="text-muted-foreground/70 hover:text-foreground"
+                  size="icon-sm"
+                  title={selectedModel?.name ?? selectedModelId}
+                  type="button"
+                  variant="ghost"
+                >
+                  <SparklesIcon size={14} />
+                </Button>
+              }
+            />
             <ModelSelectorContent>
               <ModelSelectorInput placeholder="Search models..." />
               <ModelSelectorList>
