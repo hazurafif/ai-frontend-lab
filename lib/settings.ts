@@ -7,6 +7,8 @@
 // the remaining settings (model, prompt, toggles) are still local-only
 // until the backend /settings endpoints exist.
 
+import { fetchWithAuth } from "@/lib/auth";
+
 export type SkillFile = {
   // Relative path under the skill root (skill-creator layout), e.g.
   // "scripts/run.py". Must match SKILL_FILE_PATH_RE (backend validates).
@@ -146,7 +148,7 @@ export type HealthPayload = {
 
 export async function fetchBackendHealth(): Promise<HealthPayload | null> {
   try {
-    const res = await fetch("/api/health", { cache: "no-store" });
+    const res = await fetchWithAuth("/api/health", { cache: "no-store" });
     if (!res.ok) {
       return null;
     }
@@ -195,7 +197,7 @@ export type BackendToolServer = {
 async function agentFetch(path: string, init?: RequestInit): Promise<Response> {
   let res: Response;
   try {
-    res = await fetch(`/api/agent${path}`, {
+    res = await fetchWithAuth(`/api/agent${path}`, {
       ...init,
       headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
     });

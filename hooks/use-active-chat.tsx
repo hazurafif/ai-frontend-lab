@@ -17,6 +17,7 @@ import {
   useState,
 } from "react";
 import { toast } from "@/components/chat/toast";
+import { authHeaders } from "@/lib/auth";
 import {
   CHAT_STORAGE_PREFIX,
   HISTORY_CHANGED_EVENT,
@@ -207,6 +208,7 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
           }
 
           return {
+            headers: authHeaders(),
             body: {
               id: request.id,
               messages,
@@ -214,6 +216,9 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
               ...request.body,
             },
           };
+        },
+        prepareReconnectToStreamRequest() {
+          return { headers: authHeaders() };
         },
       }),
     });

@@ -11,6 +11,7 @@
       "!.next",
       "!node_modules",
       "!node_modules",
+      "!.pi-subagents",
       "!components/ai-elements",
       "!components/ui",
       "!app/globals.css",

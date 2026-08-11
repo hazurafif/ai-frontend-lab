@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { Suspense } from "react";
 import { Toaster } from "sonner";
+import { AuthGate } from "@/components/auth/auth-gate";
 import { AppSidebar } from "@/components/chat/app-sidebar";
 import { ChatShellRoute } from "@/components/chat/shell-route";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
@@ -9,7 +10,9 @@ import { ActiveChatProvider } from "@/hooks/use-active-chat";
 export default function Layout({ children }: { children: React.ReactNode }) {
   return (
     <Suspense fallback={<div className="flex h-dvh bg-sidebar" />}>
-      <SidebarShell>{children}</SidebarShell>
+      <AuthGate>
+        <SidebarShell>{children}</SidebarShell>
+      </AuthGate>
     </Suspense>
   );
 }
