@@ -59,7 +59,7 @@ const PureChatItem = ({
         </DropdownMenuTrigger>
 
         <DropdownMenuContent align="end" side="bottom">
-          <DropdownMenuItem onSelect={handleDelete} variant="destructive">
+          <DropdownMenuItem onClick={handleDelete} variant="destructive">
             <TrashIcon />
             <span>Delete</span>
           </DropdownMenuItem>

@@ -114,7 +114,7 @@ export function SidebarHistory() {
       window.removeEventListener(HISTORY_CHANGED_EVENT, refresh);
       window.removeEventListener("storage", refresh);
     };
-  }, []);
+  }, [mounted]);
 
   const handleDelete = useCallback(() => {
     const chatToDelete = deleteId;
