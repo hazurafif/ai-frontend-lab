@@ -3,7 +3,7 @@
 import type { UseChatHelpers } from "@ai-sdk/react";
 import { ArrowUpIcon, SquareIcon, XIcon } from "lucide-react";
 import type { FormEvent, KeyboardEvent } from "react";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import {
   ModelSelector,
   ModelSelectorContent,
@@ -47,6 +47,7 @@ export function MultimodalInput({
   stop,
 }: MultimodalInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [modelSelectorOpen, setModelSelectorOpen] = useState(false);
 
   const selectedModel = chatModels.find((m) => m.id === selectedModelId);
 
@@ -102,7 +103,10 @@ export function MultimodalInput({
         />
 
         <div className="flex shrink-0 items-center gap-1.5">
-          <ModelSelector>
+          <ModelSelector
+            onOpenChange={setModelSelectorOpen}
+            open={modelSelectorOpen}
+          >
             <ModelSelectorTrigger asChild>
               <Button
                 aria-label="Select model"
@@ -123,7 +127,10 @@ export function MultimodalInput({
                   {chatModels.map((model) => (
                     <ModelSelectorItem
                       key={model.id}
-                      onSelect={() => onModelChange(model.id)}
+                      onSelect={() => {
+                        setModelSelectorOpen(false);
+                        onModelChange(model.id);
+                      }}
                     >
                       <div className="flex flex-col gap-0.5">
                         <div className="font-medium">{model.name}</div>

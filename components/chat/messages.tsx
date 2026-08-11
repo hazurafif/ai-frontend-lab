@@ -2,7 +2,7 @@
 
 import type { UseChatHelpers } from "@ai-sdk/react";
 import { ArrowDownIcon } from "lucide-react";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useMessages } from "@/hooks/use-messages";
 import type { ChatMessage } from "@/lib/types";
 import { Greeting } from "./greeting";
@@ -47,6 +47,18 @@ function PureMessages({
   const handleScrollToBottom = useCallback(() => {
     scrollToBottom("smooth");
   }, [scrollToBottom]);
+
+  // Messages come from localStorage (client-only), so the tree must not be
+  // rendered during SSR/hydration — otherwise server (empty) and client
+  // (history) HTML differ and React logs a hydration mismatch.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!mounted) {
+    return <div className="relative flex-1 bg-background" />;
+  }
 
   return (
     <div className="relative flex-1 bg-background">

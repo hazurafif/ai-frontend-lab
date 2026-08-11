@@ -12,6 +12,8 @@ import {
   MessageResponse,
 } from "../ai-elements/message";
 import { Shimmer } from "../ai-elements/shimmer";
+import { SubagentCard } from "../ai-elements/subagent-card";
+import { ToolCard, type ToolUIPart } from "../ai-elements/tool-card";
 import { SparklesIcon } from "./icons";
 
 function ThinkingText() {
@@ -88,7 +90,8 @@ function PreviewMessage({
       (part.type === "reasoning" &&
         "text" in part &&
         part.text?.trim().length > 0) ||
-      part.type.startsWith("tool-"),
+      part.type.startsWith("tool-") ||
+      part.type === "custom",
   );
   const isThinking = isAssistant && isLoading && !hasAnyContent;
 
@@ -157,7 +160,24 @@ function PreviewMessage({
       );
     }
 
-    // tool-* parts are rendered by the backend's data stream / custom UI;
+    if (type.startsWith("tool-")) {
+      // Tool call card: name, status badge, input/output (AI SDK tool parts).
+      return <ToolCard key={key} part={part as unknown as ToolUIPart} />;
+    }
+
+    if (type === "custom") {
+      // Custom parts: subagent delegation cards from the backend.
+      // `app.subagent` is the current kind; "subagent" matches history
+      // persisted before the rename.
+      const isSubagent =
+        part.kind === "app.subagent" || (part.kind as string) === "subagent";
+      if (isSubagent) {
+        return <SubagentCard key={key} part={part} />;
+      }
+      return null;
+    }
+
+    // other tool-* / data-* parts are rendered by the backend's custom UI;
     // they are intentionally not rendered here.
     return null;
   });

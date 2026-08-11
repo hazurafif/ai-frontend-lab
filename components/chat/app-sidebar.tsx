@@ -5,13 +5,14 @@ import {
   MoonIcon,
   PanelLeftIcon,
   PenSquareIcon,
+  SettingsIcon,
   SunIcon,
   TrashIcon,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { SidebarHistory } from "@/components/chat/sidebar-history";
 import {
@@ -46,7 +47,12 @@ export function AppSidebar() {
   const { setOpenMobile, toggleSidebar } = useSidebar();
   const { resolvedTheme, setTheme } = useTheme();
   const { deleteAllChats } = useActiveChat();
+  const [mounted, setMounted] = useState(false);
   const [showDeleteAllDialog, setShowDeleteAllDialog] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const closeMobile = useCallback(() => {
     setOpenMobile(false);
@@ -145,11 +151,23 @@ export function AppSidebar() {
           <SidebarMenu>
             <SidebarMenuItem>
               <SidebarMenuButton
+                asChild
+                className="h-8 rounded-lg text-sidebar-foreground/60 transition-colors duration-150 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+                tooltip="Settings"
+              >
+                <Link href="/settings" onClick={closeMobile}>
+                  <SettingsIcon className="size-4" />
+                  <span className="text-[13px]">Settings</span>
+                </Link>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton
                 className="h-8 rounded-lg text-sidebar-foreground/60 transition-colors duration-150 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
                 onClick={handleToggleTheme}
                 tooltip="Toggle theme"
               >
-                {resolvedTheme === "dark" ? (
+                {mounted && resolvedTheme === "dark" ? (
                   <SunIcon className="size-4" />
                 ) : (
                   <MoonIcon className="size-4" />

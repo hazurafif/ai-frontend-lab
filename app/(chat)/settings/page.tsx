@@ -1,0 +1,934 @@
+"use client";
+
+import {
+  PlusIcon,
+  RefreshCcwIcon,
+  SettingsIcon,
+  TrashIcon,
+} from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Combobox,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
+  ComboboxTrigger,
+  ComboboxValue,
+} from "@/components/ui/combobox";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldGroup,
+  FieldLabel,
+} from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
+import { type ChatModel, chatModels, DEFAULT_CHAT_MODEL } from "@/lib/models";
+import {
+  createSkill as apiCreateSkill,
+  createToolServer as apiCreateToolServer,
+  deleteSkill as apiDeleteSkill,
+  deleteToolServer as apiDeleteToolServer,
+  updateSkill as apiUpdateSkill,
+  updateToolServer as apiUpdateToolServer,
+  backendSkillToSkill,
+  backendToolToToolConfig,
+  DEFAULT_SETTINGS,
+  fetchBackendHealth,
+  fetchSkills,
+  fetchToolServers,
+  loadSettings,
+  normalizeSkillName,
+  reconnectToolServers,
+  type SettingsState,
+  SKILL_NAME_RE,
+  type Skill,
+  saveSettings,
+  type ToolConfig,
+} from "@/lib/settings";
+import { cn } from "@/lib/utils";
+
+function Card({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      className={cn(
+        "rounded-2xl border border-border/60 bg-card p-5 shadow-[var(--shadow-card)]",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+// --- Skills tab ---------------------------------------------------------------
+
+function SkillsTab({
+  settings,
+  setSettings,
+  backendOnline,
+}: {
+  settings: SettingsState;
+  setSettings: (updater: (current: SettingsState) => SettingsState) => void;
+  backendOnline: boolean;
+}) {
+  const [editing, setEditing] = useState<Skill | null>(null);
+  const [draft, setDraft] = useState<Skill | null>(null);
+  const [nameError, setNameError] = useState<string | null>(null);
+
+  const openNew = () => {
+    const fresh: Skill = {
+      name: "",
+      description: "",
+      content: "",
+      updatedAt: new Date().toISOString(),
+    };
+    setNameError(null);
+    setDraft(fresh);
+    setEditing(fresh);
+  };
+
+  const saveSkill = async () => {
+    if (!draft) {
+      return;
+    }
+    const name = normalizeSkillName(draft.name.trim());
+    if (!SKILL_NAME_RE.test(name)) {
+      setNameError(
+        "Use lowercase letters, numbers, and hyphens (e.g. code-review).",
+      );
+      return;
+    }
+    const originalName = editing?.name ?? "";
+    const skill: Skill = {
+      ...draft,
+      name,
+      updatedAt: new Date().toISOString(),
+    };
+    const isNew = !settings.skills.some((s) => s.name === originalName);
+    try {
+      if (backendOnline) {
+        if (isNew) {
+          await apiCreateSkill(skill);
+        } else {
+          await apiUpdateSkill(originalName, skill);
+          if (originalName !== name) {
+            // Backend PUT keys the entry by body.name — drop the stale key.
+            await apiDeleteSkill(originalName);
+          }
+        }
+      }
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to save skill",
+      );
+      return;
+    }
+    setSettings((current) => {
+      const rest = current.skills.filter((s) => s.name !== originalName);
+      const exists = rest.some((s) => s.name === name);
+      return {
+        ...current,
+        skills: exists
+          ? rest.map((s) => (s.name === name ? skill : s))
+          : [...rest, skill],
+      };
+    });
+    setEditing(null);
+    toast.success(
+      backendOnline
+        ? "Skill saved to backend"
+        : "Skill saved locally (backend offline)",
+    );
+  };
+
+  const deleteSkill = async (name: string) => {
+    try {
+      if (backendOnline) {
+        await apiDeleteSkill(name);
+      }
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to delete skill",
+      );
+      return;
+    }
+    setSettings((current) => ({
+      ...current,
+      skills: current.skills.filter((s) => s.name !== name),
+    }));
+    toast.success(
+      backendOnline
+        ? "Skill deleted"
+        : "Skill deleted locally (backend offline)",
+    );
+  };
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center justify-between">
+        <p className="text-[13px] text-muted-foreground">
+          Reusable instruction sets the agent can follow. Stored as{" "}
+          <code className="rounded bg-muted px-1 font-mono text-[12px]">
+            SKILL.md
+          </code>{" "}
+          in the backend; changes apply on the next run.
+        </p>
+        <Button size="sm" variant="secondary" onClick={openNew}>
+          <PlusIcon data-icon="inline-start" />
+          New skill
+        </Button>
+      </div>
+      {settings.skills.length === 0 && (
+        <Card className="text-[13px] text-muted-foreground">
+          No skills yet — create one to teach the agent a methodology.
+        </Card>
+      )}
+      {settings.skills.map((skill) => (
+        <Card
+          key={skill.name}
+          className="flex items-start justify-between gap-4"
+        >
+          <div className="flex min-w-0 flex-col gap-1">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium">{skill.name}</span>
+              <Badge variant="outline">skill</Badge>
+            </div>
+            <p className="text-[13px] text-muted-foreground">
+              {skill.description}
+            </p>
+          </div>
+          <div className="flex shrink-0 gap-1">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setDraft({ ...skill });
+                setEditing(skill);
+              }}
+            >
+              Edit
+            </Button>
+            <Button
+              size="icon"
+              variant="ghost"
+              aria-label={`Delete ${skill.name}`}
+              onClick={() => deleteSkill(skill.name)}
+            >
+              <TrashIcon data-icon="inline-start" />
+            </Button>
+          </div>
+        </Card>
+      ))}
+
+      <Dialog
+        open={editing !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditing(null);
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {settings.skills.some((s) => s.name === editing?.name)
+                ? "Edit skill"
+                : "New skill"}
+            </DialogTitle>
+          </DialogHeader>
+          <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor="skill-name">Name</FieldLabel>
+              <Input
+                id="skill-name"
+                value={draft?.name ?? ""}
+                onChange={(e) => {
+                  setNameError(null);
+                  setDraft((d) => (d ? { ...d, name: e.target.value } : d));
+                }}
+                placeholder="e.g. code-review"
+              />
+              <FieldDescription>
+                The skill key the agent references: lowercase letters, numbers,
+                and hyphens.
+              </FieldDescription>
+              {nameError && <FieldError>{nameError}</FieldError>}
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="skill-description">Description</FieldLabel>
+              <Input
+                id="skill-description"
+                value={draft?.description ?? ""}
+                onChange={(e) =>
+                  setDraft((d) =>
+                    d ? { ...d, description: e.target.value } : d,
+                  )
+                }
+                placeholder="What is this skill for?"
+              />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="skill-content">
+                Content (markdown)
+              </FieldLabel>
+              <Textarea
+                id="skill-content"
+                className="min-h-32 font-mono text-[13px]"
+                value={draft?.content ?? ""}
+                onChange={(e) =>
+                  setDraft((d) => (d ? { ...d, content: e.target.value } : d))
+                }
+              />
+            </Field>
+          </FieldGroup>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditing(null)}>
+              Cancel
+            </Button>
+            <Button onClick={saveSkill}>Save skill</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// --- Tools tab ----------------------------------------------------------------
+
+const TOOL_TRANSPORTS = ["streamable_http", "stdio"] as const;
+
+function ToolsTab({
+  settings,
+  setSettings,
+  backendOnline,
+}: {
+  settings: SettingsState;
+  setSettings: (updater: (current: SettingsState) => SettingsState) => void;
+  backendOnline: boolean;
+}) {
+  const [editing, setEditing] = useState<ToolConfig | null>(null);
+  const [draft, setDraft] = useState<ToolConfig | null>(null);
+
+  const toggleTool = async (name: string, enabled: boolean) => {
+    const tool = settings.tools.find((t) => t.name === name);
+    if (!tool) {
+      return;
+    }
+    const next = { ...tool, enabled };
+    try {
+      if (backendOnline) {
+        await apiUpdateToolServer(name, next);
+      }
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to update tool",
+      );
+      return;
+    }
+    setSettings((current) => ({
+      ...current,
+      tools: current.tools.map((t) => (t.name === name ? next : t)),
+    }));
+    toast.success(enabled ? "Tool enabled" : "Tool disabled");
+  };
+
+  const openEditor = (tool: ToolConfig | null) => {
+    const fresh: ToolConfig = tool ?? {
+      name: "",
+      description: "",
+      transport: "streamable_http",
+      url: "",
+      enabled: true,
+    };
+    setDraft(fresh);
+    setEditing(fresh);
+  };
+
+  const saveTool = async () => {
+    if (!draft) {
+      return;
+    }
+    const name = normalizeSkillName(draft.name.trim());
+    if (!SKILL_NAME_RE.test(name)) {
+      toast.error(
+        "Invalid name — use lowercase letters, numbers, and hyphens (e.g. weather).",
+      );
+      return;
+    }
+    const originalName = editing?.name ?? "";
+    const tool: ToolConfig = { ...draft, name };
+    const isNew = !settings.tools.some((t) => t.name === originalName);
+    try {
+      if (backendOnline) {
+        if (isNew) {
+          await apiCreateToolServer(tool);
+        } else {
+          await apiUpdateToolServer(originalName, tool);
+          if (originalName !== name) {
+            // Backend PUT keys the entry by body.name — drop the stale key.
+            await apiDeleteToolServer(originalName);
+          }
+        }
+      }
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to save tool",
+      );
+      return;
+    }
+    setSettings((current) => {
+      const rest = current.tools.filter((t) => t.name !== originalName);
+      const exists = rest.some((t) => t.name === name);
+      return {
+        ...current,
+        tools: exists
+          ? rest.map((t) => (t.name === name ? tool : t))
+          : [...rest, tool],
+      };
+    });
+    setEditing(null);
+    toast.success(
+      backendOnline
+        ? "Tool saved to backend"
+        : "Tool saved locally (backend offline)",
+    );
+  };
+
+  const deleteTool = async (name: string) => {
+    try {
+      if (backendOnline) {
+        await apiDeleteToolServer(name);
+      }
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to delete tool",
+      );
+      return;
+    }
+    setSettings((current) => ({
+      ...current,
+      tools: current.tools.filter((t) => t.name !== name),
+    }));
+    toast.success(
+      backendOnline ? "Tool deleted" : "Tool deleted locally (backend offline)",
+    );
+  };
+
+  const reconnect = async () => {
+    try {
+      const result = await reconnectToolServers();
+      toast.success(
+        `Reconnected ${result.connected.length > 0 ? result.connected.join(", ") : "no servers"} (${result.tools} tools)`,
+      );
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Reconnect failed");
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center justify-between">
+        <p className="text-[13px] text-muted-foreground">
+          MCP tool servers the agent can call, persisted in the backend&apos;s
+          store. Changes apply after reconnect.
+        </p>
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" onClick={reconnect}>
+            <RefreshCcwIcon data-icon="inline-start" />
+            Reconnect
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => openEditor(null)}
+          >
+            <PlusIcon data-icon="inline-start" />
+            Add tool
+          </Button>
+        </div>
+      </div>
+      <Card className="p-0">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Name</TableHead>
+              <TableHead>Transport</TableHead>
+              <TableHead className="hidden md:table-cell">Endpoint</TableHead>
+              <TableHead className="w-20">Status</TableHead>
+              <TableHead className="w-24 text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {settings.tools.map((tool) => (
+              <TableRow key={tool.name}>
+                <TableCell>
+                  <div className="flex flex-col">
+                    <span className="font-mono text-[13px]">{tool.name}</span>
+                    <span className="text-[12px] text-muted-foreground">
+                      {tool.description}
+                    </span>
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <Badge variant="outline">{tool.transport}</Badge>
+                </TableCell>
+                <TableCell className="hidden font-mono text-[12px] text-muted-foreground md:table-cell">
+                  {tool.url ?? tool.command ?? "—"}
+                </TableCell>
+                <TableCell>
+                  <Switch
+                    checked={tool.enabled}
+                    onCheckedChange={(checked) =>
+                      toggleTool(tool.name, checked)
+                    }
+                    aria-label={`Toggle ${tool.name}`}
+                  />
+                </TableCell>
+                <TableCell className="text-right">
+                  <div className="flex justify-end gap-1">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => openEditor(tool)}
+                    >
+                      Edit
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      aria-label={`Delete ${tool.name}`}
+                      onClick={() => deleteTool(tool.name)}
+                    >
+                      <TrashIcon data-icon="inline-start" />
+                    </Button>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </Card>
+
+      <Dialog
+        open={editing !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditing(null);
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {settings.tools.some((t) => t.name === editing?.name)
+                ? "Edit tool"
+                : "Add tool"}
+            </DialogTitle>
+          </DialogHeader>
+          <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor="tool-name">Name</FieldLabel>
+              <Input
+                id="tool-name"
+                value={draft?.name ?? ""}
+                onChange={(e) =>
+                  setDraft((d) => (d ? { ...d, name: e.target.value } : d))
+                }
+                placeholder="e.g. weather"
+              />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="tool-description">Description</FieldLabel>
+              <Input
+                id="tool-description"
+                value={draft?.description ?? ""}
+                onChange={(e) =>
+                  setDraft((d) =>
+                    d ? { ...d, description: e.target.value } : d,
+                  )
+                }
+              />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="tool-transport">Transport</FieldLabel>
+              <Combobox
+                value={draft?.transport ?? "streamable_http"}
+                onValueChange={(value) => {
+                  if (value === null) {
+                    return;
+                  }
+                  setDraft((d) =>
+                    d
+                      ? {
+                          ...d,
+                          transport: value as (typeof TOOL_TRANSPORTS)[number],
+                        }
+                      : d,
+                  );
+                }}
+              >
+                <ComboboxTrigger>
+                  <ComboboxValue />
+                </ComboboxTrigger>
+                <ComboboxContent>
+                  <ComboboxInput placeholder="Search transport…" />
+                  <ComboboxList>
+                    {TOOL_TRANSPORTS.map((transport) => (
+                      <ComboboxItem key={transport} value={transport}>
+                        {transport}
+                      </ComboboxItem>
+                    ))}
+                  </ComboboxList>
+                </ComboboxContent>
+              </Combobox>
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="tool-url">URL</FieldLabel>
+              <Input
+                id="tool-url"
+                value={draft?.url ?? ""}
+                onChange={(e) =>
+                  setDraft((d) => (d ? { ...d, url: e.target.value } : d))
+                }
+                placeholder="http://localhost:8090/mcp"
+              />
+              <FieldDescription>
+                For streamable_http transport.
+              </FieldDescription>
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="tool-command">Command</FieldLabel>
+              <Input
+                id="tool-command"
+                value={draft?.command ?? ""}
+                onChange={(e) =>
+                  setDraft((d) => (d ? { ...d, command: e.target.value } : d))
+                }
+                placeholder="/path/to/mcp-server serve"
+              />
+              <FieldDescription>For stdio transport.</FieldDescription>
+            </Field>
+          </FieldGroup>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditing(null)}>
+              Cancel
+            </Button>
+            <Button onClick={saveTool}>Save tool</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// --- General tab --------------------------------------------------------------
+
+function GeneralTab({
+  settings,
+  setSettings,
+}: {
+  settings: SettingsState;
+  setSettings: (updater: (current: SettingsState) => SettingsState) => void;
+}) {
+  const [prompt, setPrompt] = useState(settings.systemPrompt);
+  const [interruptOn, setInterruptOn] = useState(settings.interruptOn);
+  const [searxng, setSearxng] = useState(settings.searxngEnabled);
+
+  // Sync local draft when settings load/change from storage.
+  useEffect(() => {
+    setPrompt(settings.systemPrompt);
+    setInterruptOn(settings.interruptOn);
+    setSearxng(settings.searxngEnabled);
+  }, [settings.systemPrompt, settings.interruptOn, settings.searxngEnabled]);
+
+  const save = () => {
+    setSettings((current) => ({
+      ...current,
+      systemPrompt: prompt,
+      interruptOn,
+      searxngEnabled: searxng,
+    }));
+    toast.success("Settings saved");
+  };
+
+  return (
+    <div className="flex max-w-2xl flex-col gap-4">
+      <Card>
+        <FieldGroup>
+          <Field>
+            <FieldLabel htmlFor="system-prompt">System prompt</FieldLabel>
+            <Textarea
+              id="system-prompt"
+              className="min-h-36 text-[13px]"
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+            />
+            <FieldDescription>
+              Sent to the model on every run. Controls the agent&apos;s
+              behavior.
+            </FieldDescription>
+          </Field>
+        </FieldGroup>
+      </Card>
+      <Card className="flex flex-col gap-4">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex flex-col gap-0.5">
+            <span className="text-sm font-medium">Human-in-the-loop</span>
+            <span className="text-[13px] text-muted-foreground">
+              Pause before sensitive tool calls (write_file, edit_file) for
+              approval.
+            </span>
+          </div>
+          <Switch
+            checked={interruptOn}
+            onCheckedChange={setInterruptOn}
+            aria-label="Human-in-the-loop"
+          />
+        </div>
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex flex-col gap-0.5">
+            <span className="text-sm font-medium">Web search (SearXNG)</span>
+            <span className="text-[13px] text-muted-foreground">
+              Let the agent search the web via your self-hosted SearXNG
+              instance.
+            </span>
+          </div>
+          <Switch
+            checked={searxng}
+            onCheckedChange={setSearxng}
+            aria-label="Web search"
+          />
+        </div>
+      </Card>
+      <div>
+        <Button onClick={save}>Save changes</Button>
+      </div>
+    </div>
+  );
+}
+
+// --- Model tab ----------------------------------------------------------------
+
+function ModelTab({
+  settings,
+  setSettings,
+}: {
+  settings: SettingsState;
+  setSettings: (updater: (current: SettingsState) => SettingsState) => void;
+}) {
+  const [modelId, setModelId] = useState(settings.model);
+  const model: ChatModel | undefined = useMemo(
+    () => chatModels.find((m) => m.id === modelId) ?? chatModels[0],
+    [modelId],
+  );
+
+  useEffect(() => {
+    setModelId(settings.model);
+  }, [settings.model]);
+
+  const save = () => {
+    setSettings((current) => ({ ...current, model: modelId }));
+    toast.success(`Model set to ${modelId}`);
+  };
+
+  return (
+    <div className="flex max-w-2xl flex-col gap-4">
+      <Card>
+        <FieldGroup>
+          <Field>
+            <FieldLabel>Chat model</FieldLabel>
+            <Combobox
+              value={model?.id ?? DEFAULT_CHAT_MODEL}
+              onValueChange={(value) => {
+                if (value !== null) {
+                  setModelId(value);
+                }
+              }}
+            >
+              <ComboboxTrigger>
+                <ComboboxValue />
+              </ComboboxTrigger>
+              <ComboboxContent>
+                <ComboboxInput placeholder="Search models…" />
+                <ComboboxList>
+                  {chatModels.map((m) => (
+                    <ComboboxItem key={m.id} value={m.id}>
+                      <span className="font-medium">{m.name}</span>
+                      <p className="text-[12px] text-muted-foreground">
+                        {m.description}
+                      </p>
+                    </ComboboxItem>
+                  ))}
+                  <ComboboxEmpty>No models found.</ComboboxEmpty>
+                </ComboboxList>
+              </ComboboxContent>
+            </Combobox>
+            <FieldDescription>
+              Sent as{" "}
+              <code className="rounded bg-muted px-1 font-mono text-[12px]">
+                selectedChatModel
+              </code>{" "}
+              in chat requests; the backend resolves the actual model.
+            </FieldDescription>
+          </Field>
+        </FieldGroup>
+      </Card>
+      <div>
+        <Button onClick={save}>Save model</Button>
+      </div>
+    </div>
+  );
+}
+
+// --- Page ---------------------------------------------------------------------
+
+export default function SettingsPage() {
+  const [settings, setSettings] = useState<SettingsState>(DEFAULT_SETTINGS);
+  const [loaded, setLoaded] = useState(false);
+  const [backendOnline, setBackendOnline] = useState(false);
+
+  useEffect(() => {
+    const stored = loadSettings();
+    setSettings(stored);
+    setLoaded(true);
+    fetchBackendHealth().then((health) => {
+      if (!health) {
+        return;
+      }
+      setBackendOnline(true);
+      setSettings((current) => ({
+        ...current,
+        model: health.model ?? current.model,
+        interruptOn: Boolean(
+          health.interrupt_on && Object.keys(health.interrupt_on).length,
+        ),
+        searxngEnabled: health.searxng?.enabled ?? current.searxngEnabled,
+      }));
+      // Replace the local cache with the backend's live agent resources.
+      Promise.all([fetchSkills(), fetchToolServers()])
+        .then(([skills, tools]) => {
+          setSettings((current) => ({
+            ...current,
+            skills: skills.map(backendSkillToSkill),
+            tools: tools.map((tool) =>
+              backendToolToToolConfig(
+                tool,
+                current.tools.find((stored) => stored.name === tool.name),
+              ),
+            ),
+          }));
+        })
+        .catch(() => {
+          // Resources unreachable — keep the local (offline) cache.
+        });
+    });
+  }, []);
+
+  const update = (updater: (current: SettingsState) => SettingsState) => {
+    setSettings((current) => {
+      const next = updater(current);
+      saveSettings(next);
+      return next;
+    });
+  };
+
+  // Settings load from localStorage + backend health (client-only), so the
+  // tabs must not render during SSR/hydration — avoids hydration mismatches.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  return (
+    <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-4 py-6">
+      <div className="flex items-center gap-3">
+        <div className="flex size-9 items-center justify-center rounded-xl border border-border/60 bg-card">
+          <SettingsIcon className="size-4 text-muted-foreground" />
+        </div>
+        <div className="flex flex-col">
+          <h1 className="text-lg font-semibold">Settings</h1>
+          <p className="text-[13px] text-muted-foreground">
+            {backendOnline
+              ? "Connected to backend — values shown are the live configuration."
+              : "Backend offline — showing saved local values."}
+          </p>
+        </div>
+      </div>
+
+      {loaded && mounted && (
+        <Tabs
+          orientation="vertical"
+          defaultValue="general"
+          className="flex items-start gap-6"
+        >
+          <TabsList className="w-44 shrink-0 flex-col items-stretch">
+            {/* justify-start: the group-data-vertical variant never fires
+                (radix sets data-orientation, not data-vertical), so trigger
+                text would stay centered without an explicit override. */}
+            <TabsTrigger value="general" className="justify-start px-3">
+              General
+            </TabsTrigger>
+            <TabsTrigger value="model" className="justify-start px-3">
+              Model
+            </TabsTrigger>
+            <TabsTrigger value="skills" className="justify-start px-3">
+              Skills
+            </TabsTrigger>
+            <TabsTrigger value="tools" className="justify-start px-3">
+              Tools
+            </TabsTrigger>
+          </TabsList>
+          <div className="min-w-0 flex-1">
+            {/* Fixed-height content panel: switching tabs never changes the
+                page layout; long content scrolls inside the panel. */}
+            <div className="h-[calc(100dvh-10.5rem)] min-h-[320px] overflow-y-auto pr-1">
+              <TabsContent value="general">
+                <GeneralTab settings={settings} setSettings={update} />
+              </TabsContent>
+              <TabsContent value="model">
+                <ModelTab settings={settings} setSettings={update} />
+              </TabsContent>
+              <TabsContent value="skills">
+                <SkillsTab
+                  settings={settings}
+                  setSettings={update}
+                  backendOnline={backendOnline}
+                />
+              </TabsContent>
+              <TabsContent value="tools">
+                <ToolsTab
+                  settings={settings}
+                  setSettings={update}
+                  backendOnline={backendOnline}
+                />
+              </TabsContent>
+            </div>
+          </div>
+        </Tabs>
+      )}
+    </div>
+  );
+}

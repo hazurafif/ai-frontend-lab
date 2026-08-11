@@ -93,7 +93,17 @@ export function SidebarHistory() {
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
+  // History comes from localStorage (client-only): wait for mount so SSR
+  // (empty) and client (history) HTML match during hydration.
+  const [mounted, setMounted] = useState(false);
   useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!mounted) {
+      return;
+    }
     const refresh = () => setHistory(loadHistory());
 
     refresh();
