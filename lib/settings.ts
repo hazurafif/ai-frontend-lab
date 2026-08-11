@@ -7,11 +7,20 @@
 // the remaining settings (model, prompt, toggles) are still local-only
 // until the backend /settings endpoints exist.
 
+export type SkillFile = {
+  // Relative path under the skill root (skill-creator layout), e.g.
+  // "scripts/run.py". Must match SKILL_FILE_PATH_RE (backend validates).
+  path: string;
+  content: string;
+};
+
 export type Skill = {
   // Backend key: lowercase alphanumeric + hyphens (Agent Skills spec).
   name: string;
   description: string;
   content: string;
+  // Bundled resources the agent can read/execute (scripts/, references/, ...).
+  files: SkillFile[];
   updatedAt: string;
 };
 
@@ -52,6 +61,7 @@ export const DEFAULT_SETTINGS: SettingsState = {
       description: "How to review pull requests",
       content:
         "# Code review\n\n1. Read the diff carefully\n2. Check for edge cases\n3. Suggest tests",
+      files: [],
       updatedAt: new Date().toISOString(),
     },
   ],
@@ -98,6 +108,10 @@ function migrateSkill(skill: Partial<Skill> & { id?: string }): Skill {
     name,
     description: skill.description ?? "",
     content: skill.content ?? "",
+    files: (skill.files ?? []).map((file) => ({
+      path: file.path,
+      content: file.content,
+    })),
     updatedAt: skill.updatedAt ?? "",
   };
 }
@@ -147,6 +161,11 @@ export async function fetchBackendHealth(): Promise<HealthPayload | null> {
 // Agent Skills spec: lowercase alphanumeric + hyphens (backend validates).
 export const SKILL_NAME_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
+// Backend file-path pattern: segments start with alnum, then [A-Za-z0-9._-].
+// Rejects leading/trailing/double slashes, "..", backslashes and spaces.
+export const SKILL_FILE_PATH_RE =
+  /^[A-Za-z0-9][A-Za-z0-9._-]*(?:\/[A-Za-z0-9][A-Za-z0-9._-]*)*$/;
+
 export function normalizeSkillName(name: string): string {
   return name
     .toLowerCase()
@@ -159,6 +178,7 @@ export type BackendSkill = {
   description: string;
   content: string; // full SKILL.md, frontmatter included
   path: string;
+  files: { path: string; content: string }[]; // bundled files, sorted by path
 };
 
 export type BackendToolServer = {
@@ -204,6 +224,10 @@ function skillPayload(skill: Skill) {
     name: skill.name,
     description: skill.description,
     content: skill.content,
+    files: skill.files.map((file) => ({
+      path: file.path,
+      content: file.content,
+    })),
   };
 }
 
@@ -237,6 +261,20 @@ export async function deleteSkill(name: string): Promise<void> {
   });
 }
 
+export async function deleteSkillFile(
+  name: string,
+  path: string,
+): Promise<void> {
+  // Encode per segment so slashes stay readable and %2F never breaks routing.
+  const encodedPath = path
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+  await agentFetch(`/skills/${encodeURIComponent(name)}/files/${encodedPath}`, {
+    method: "DELETE",
+  });
+}
+
 // The backend returns SKILL.md with its frontmatter; the UI edits body and
 // description separately, so strip the frontmatter on load and let the
 // backend re-wrap it on save.
@@ -258,6 +296,7 @@ export function backendSkillToSkill(backend: BackendSkill): Skill {
     name: backend.name,
     description: backend.description || parsed.description,
     content: parsed.body,
+    files: backend.files ?? [],
     updatedAt: "",
   };
 }

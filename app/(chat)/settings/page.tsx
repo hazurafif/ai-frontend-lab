@@ -5,6 +5,7 @@ import {
   RefreshCcwIcon,
   SettingsIcon,
   TrashIcon,
+  XIcon,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -51,6 +52,7 @@ import {
   createSkill as apiCreateSkill,
   createToolServer as apiCreateToolServer,
   deleteSkill as apiDeleteSkill,
+  deleteSkillFile as apiDeleteSkillFile,
   deleteToolServer as apiDeleteToolServer,
   updateSkill as apiUpdateSkill,
   updateToolServer as apiUpdateToolServer,
@@ -64,8 +66,10 @@ import {
   normalizeSkillName,
   reconnectToolServers,
   type SettingsState,
+  SKILL_FILE_PATH_RE,
   SKILL_NAME_RE,
   type Skill,
+  type SkillFile,
   saveSettings,
   type ToolConfig,
 } from "@/lib/settings";
@@ -97,17 +101,63 @@ function SkillsTab({
   const [editing, setEditing] = useState<Skill | null>(null);
   const [draft, setDraft] = useState<Skill | null>(null);
   const [nameError, setNameError] = useState<string | null>(null);
+  // Bundled-file paths removed in the editor: the backend PUT keeps unlisted
+  // files, so each one needs an explicit DELETE afterwards.
+  const [removedFiles, setRemovedFiles] = useState<string[]>([]);
+  const [fileError, setFileError] = useState<{
+    index: number;
+    message: string;
+  } | null>(null);
+
+  const resetEditor = () => {
+    setNameError(null);
+    setFileError(null);
+    setRemovedFiles([]);
+  };
 
   const openNew = () => {
     const fresh: Skill = {
       name: "",
       description: "",
       content: "",
+      files: [],
       updatedAt: new Date().toISOString(),
     };
-    setNameError(null);
+    resetEditor();
     setDraft(fresh);
     setEditing(fresh);
+  };
+
+  const updateFile = (index: number, patch: Partial<SkillFile>) => {
+    setFileError(null);
+    setDraft((d) =>
+      d
+        ? {
+            ...d,
+            files: d.files.map((file, i) =>
+              i === index ? { ...file, ...patch } : file,
+            ),
+          }
+        : d,
+    );
+  };
+
+  const addFile = () => {
+    setFileError(null);
+    setDraft((d) =>
+      d ? { ...d, files: [...d.files, { path: "", content: "" }] } : d,
+    );
+  };
+
+  const removeFile = (index: number) => {
+    const removed = draft?.files[index];
+    if (removed?.path) {
+      setRemovedFiles((previous) => [...previous, removed.path]);
+    }
+    setFileError(null);
+    setDraft((d) =>
+      d ? { ...d, files: d.files.filter((_, i) => i !== index) } : d,
+    );
   };
 
   const saveSkill = async () => {
@@ -121,10 +171,31 @@ function SkillsTab({
       );
       return;
     }
+    // Validate bundled file paths against the backend pattern (SKILL.md is
+    // reserved — the backend builds it from name/description/content).
+    for (const [index, file] of draft.files.entries()) {
+      const path = file.path.trim();
+      if (!SKILL_FILE_PATH_RE.test(path) || path.toLowerCase() === "skill.md") {
+        setFileError({
+          index,
+          message: `Invalid path "${path || "(empty)"}" — use e.g. scripts/run.py (letters, numbers, dots, underscores, hyphens, single slashes).`,
+        });
+        return;
+      }
+    }
     const originalName = editing?.name ?? "";
+    // Deduplicate by path — the backend keys files by path, so the last
+    // occurrence would silently win.
+    const seen = new Set<string>();
+    const files = draft.files
+      .map((file) => ({ path: file.path.trim(), content: file.content }))
+      .filter((file) =>
+        seen.has(file.path) ? false : (seen.add(file.path), true),
+      );
     const skill: Skill = {
       ...draft,
       name,
+      files,
       updatedAt: new Date().toISOString(),
     };
     const isNew = !settings.skills.some((s) => s.name === originalName);
@@ -137,6 +208,21 @@ function SkillsTab({
           if (originalName !== name) {
             // Backend PUT keys the entry by body.name — drop the stale key.
             await apiDeleteSkill(originalName);
+          }
+          // PUT keeps unlisted bundled files — explicitly remove the ones
+          // deleted in the editor.
+          const failed: string[] = [];
+          for (const path of new Set(removedFiles)) {
+            try {
+              await apiDeleteSkillFile(name, path);
+            } catch {
+              failed.push(path);
+            }
+          }
+          if (failed.length > 0) {
+            toast.warning(
+              `Skill saved, but ${failed.length} file${failed.length > 1 ? "s" : ""} could not be removed: ${failed.join(", ")}`,
+            );
           }
         }
       }
@@ -194,7 +280,8 @@ function SkillsTab({
           <code className="rounded bg-muted px-1 font-mono text-[12px]">
             SKILL.md
           </code>{" "}
-          in the backend; changes apply on the next run.
+          plus optional bundled files (scripts/, references/, assets/) in the
+          backend; changes apply on the next run.
         </p>
         <Button size="sm" variant="secondary" onClick={openNew}>
           <PlusIcon data-icon="inline-start" />
@@ -215,16 +302,35 @@ function SkillsTab({
             <div className="flex items-center gap-2">
               <span className="text-sm font-medium">{skill.name}</span>
               <Badge variant="outline">skill</Badge>
+              {skill.files.length > 0 && (
+                <Badge variant="outline" className="font-mono text-[11px]">
+                  {skill.files.length} file
+                  {skill.files.length > 1 ? "s" : ""}
+                </Badge>
+              )}
             </div>
             <p className="text-[13px] text-muted-foreground">
               {skill.description}
             </p>
+            {skill.files.length > 0 && (
+              <div className="mt-1 flex flex-wrap gap-1.5">
+                {skill.files.map((file) => (
+                  <code
+                    key={file.path}
+                    className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground"
+                  >
+                    {file.path}
+                  </code>
+                ))}
+              </div>
+            )}
           </div>
           <div className="flex shrink-0 gap-1">
             <Button
               size="sm"
               variant="ghost"
               onClick={() => {
+                resetEditor();
                 setDraft({ ...skill });
                 setEditing(skill);
               }}
@@ -251,7 +357,7 @@ function SkillsTab({
           }
         }}
       >
-        <DialogContent>
+        <DialogContent className="max-h-[85dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               {settings.skills.some((s) => s.name === editing?.name)
@@ -302,6 +408,65 @@ function SkillsTab({
                   setDraft((d) => (d ? { ...d, content: e.target.value } : d))
                 }
               />
+            </Field>
+            <Field data-invalid={fileError ? true : undefined}>
+              <FieldLabel>Bundled files</FieldLabel>
+              <div className="flex flex-col gap-3">
+                {draft?.files.map((file, index) => (
+                  <div
+                    key={index}
+                    className="flex flex-col gap-2 rounded-xl border border-border/60 p-3"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Input
+                        value={file.path}
+                        onChange={(e) =>
+                          updateFile(index, { path: e.target.value })
+                        }
+                        placeholder="scripts/run.py"
+                        className="font-mono text-[13px]"
+                        aria-invalid={fileError?.index === index}
+                        aria-label={`File ${index + 1} path`}
+                      />
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        aria-label={`Remove file ${index + 1}`}
+                        onClick={() => removeFile(index)}
+                      >
+                        <XIcon data-icon="inline-start" />
+                      </Button>
+                    </div>
+                    <Textarea
+                      value={file.content}
+                      onChange={(e) =>
+                        updateFile(index, { content: e.target.value })
+                      }
+                      placeholder="File contents (the agent can read and execute scripts)"
+                      className="min-h-20 font-mono text-[13px]"
+                      aria-label={`File ${index + 1} content`}
+                    />
+                  </div>
+                ))}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={addFile}
+                  className="self-start"
+                >
+                  <PlusIcon data-icon="inline-start" />
+                  Add file
+                </Button>
+                <FieldDescription>
+                  Optional resources in the skill folder (scripts/, references/,
+                  assets/…). SKILL.md is reserved.
+                </FieldDescription>
+                {fileError && (
+                  <FieldError>
+                    File {fileError.index + 1}: {fileError.message}
+                  </FieldError>
+                )}
+              </div>
             </Field>
           </FieldGroup>
           <DialogFooter>
