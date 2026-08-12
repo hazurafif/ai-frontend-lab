@@ -186,12 +186,16 @@ function SkillsTab({
     const originalName = editing?.name ?? "";
     // Deduplicate by path — the backend keys files by path, so the last
     // occurrence would silently win.
+    const files: SkillFile[] = [];
     const seen = new Set<string>();
-    const files = draft.files
-      .map((file) => ({ path: file.path.trim(), content: file.content }))
-      .filter((file) =>
-        seen.has(file.path) ? false : (seen.add(file.path), true),
-      );
+    for (const file of draft.files) {
+      const path = file.path.trim();
+      if (seen.has(path)) {
+        continue;
+      }
+      seen.add(path);
+      files.push({ path, content: file.content });
+    }
     const skill: Skill = {
       ...draft,
       name,
