@@ -105,7 +105,19 @@ lib/
   input-available → output-available/error) → rendered by
   `components/ai-elements/tool-card.tsx`. Subagents arrive as `custom` parts
   → `components/ai-elements/subagent-card.tsx`.
-- HITL interrupts surface as `error` chunks (toast) — resume is not wired yet.
+- HITL interrupts arrive as `custom` parts with `kind: "app.interrupt"`
+  (backend nests `threadId`/`interrupts` under `providerMetadata.app` — flat
+  fields fail the strict `uiMessageChunkSchema` and kill the stream) →
+  `components/ai-elements/interrupt-card.tsx` (approve/reject/respond).
+  Resuming calls `regenerate({ messageId, body: { decision } })` — the
+  transport merges `decision` into the body, the backend resumes the paused
+  thread via `/api/chat`. Stopping generation also POSTs
+  `/api/chat/threads/{id}/cancel` so the server-side run actually aborts.
+- History: sidebar merges `GET /api/chat/threads` with the localStorage
+  cache (server wins); delete/rename call `DELETE/PATCH /api/chat/threads/{id}`;
+  opening a chat with an empty local cache rehydrates messages from
+  `GET /api/chat/threads/{id}/messages` (LangGraph dumps → UIMessages via
+  `serverMessagesToChatMessages` in `lib/threads.ts`).
 - **Hydration rule:** anything read from localStorage (chat history, messages,
   settings) or fetched client-side (health) must be **mount-gated**
   (`useState(false)` + `useEffect(() => setMounted(true))`) so the server
@@ -122,9 +134,22 @@ lib/
   tool changes after `POST /agent/tools/reconnect`). The remaining settings
   (model, prompt, toggles) are still local-only until backend `/settings`
   endpoints exist.
+- Tabs: General | Model | Skills | Tools | Account (+ Users for admins).
+  Account shows the profile and self-service password change
+  (`POST /api/auth/users/me/password`); Users (admin-only, gated on
+  `user.role`) manages accounts via `lib/users.ts`
+  (`GET/POST /api/auth/users`, `PATCH/DELETE /api/auth/users/{username}`).
 - Layout: vertical `Tabs` (left nav) + fixed-height content panel
   (`h-[calc(100dvh-10.5rem)] overflow-y-auto`) so switching tabs never
   changes the page layout.
+
+## Auth
+
+- Login/register pages live outside the `(chat)` route group
+  (`app/login`, `app/register`). Tokens: access + refresh JWTs in
+  localStorage (`app-auth-token`, `app-refresh-token`). `fetchWithAuth`
+  auto-refreshes on 401 (single retry via `POST /api/auth/refresh`) and
+  `use-auth` tries a refresh before signing out on mount.
 
 ## Conventions
 

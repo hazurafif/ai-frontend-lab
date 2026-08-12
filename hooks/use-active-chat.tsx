@@ -17,6 +17,7 @@ import {
   useState,
 } from "react";
 import { toast } from "@/components/chat/toast";
+import { useAuth } from "@/hooks/use-auth";
 import { authHeaders } from "@/lib/auth";
 import {
   CHAT_STORAGE_PREFIX,
@@ -25,6 +26,13 @@ import {
 } from "@/lib/constants";
 import { ChatbotError } from "@/lib/errors";
 import { DEFAULT_CHAT_MODEL } from "@/lib/models";
+import {
+  cancelThread,
+  deleteThread,
+  fetchThreadMessages,
+  fetchThreads,
+  serverMessagesToChatMessages,
+} from "@/lib/threads";
 import type { ChatHistoryItem, ChatMessage } from "@/lib/types";
 import {
   fetchWithErrorHandlers,
@@ -47,6 +55,11 @@ type ActiveChatContextValue = {
   setCurrentModelId: (id: string) => void;
   deleteChat: (chatId: string) => void;
   deleteAllChats: () => void;
+  /** Resume a human-in-the-loop interrupt with a decision (approve/reject/...). */
+  resumeInterrupt: (
+    messageId: string,
+    decision: Record<string, unknown>,
+  ) => void;
   /** Replace the message with the given id (dropping everything after it). */
   editMessage: (originalMessageId: string, newText: string) => void;
 };
@@ -147,6 +160,7 @@ function extractChatId(pathname: string): string | null {
 
 export function ActiveChatProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const { isAuthenticated } = useAuth();
 
   const chatIdFromUrl = extractChatId(pathname);
   const isNewChat = !chatIdFromUrl;
@@ -223,11 +237,32 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
       }),
     });
 
-  // Load persisted messages when the active chat changes.
+  // Load persisted messages when the active chat changes. When the local
+  // cache is empty (new device / cleared cache), rehydrate the conversation
+  // from the server so history survives across browsers.
   useEffect(() => {
     setMessages(loadMessages(chatId));
     setInput("");
-  }, [chatId, setMessages]);
+    if (!chatIdFromUrl || !isAuthenticated) {
+      return;
+    }
+    let cancelled = false;
+    fetchThreadMessages(chatIdFromUrl)
+      .then((server) => {
+        if (cancelled || !Array.isArray(server) || server.length === 0) {
+          return;
+        }
+        setMessages((current) =>
+          current.length === 0 ? serverMessagesToChatMessages(server) : current,
+        );
+      })
+      .catch(() => {
+        // offline/backend error — keep whatever the local cache has
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [chatId, chatIdFromUrl, isAuthenticated, setMessages]);
 
   // Persist messages after streaming finishes (and on any non-streaming change).
   const prevStatusRef = useRef(status);
@@ -246,16 +281,29 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
     }
   }, [chatId, messages, status]);
 
-  const deleteChat = useCallback((chatIdToDelete: string) => {
-    const history = loadHistory().filter((chat) => chat.id !== chatIdToDelete);
-    saveHistory(history);
-    try {
-      window.localStorage.removeItem(`${CHAT_STORAGE_PREFIX}${chatIdToDelete}`);
-    } catch {
-      // ignore
-    }
-    notifyHistoryChanged();
-  }, []);
+  const deleteChat = useCallback(
+    (chatIdToDelete: string) => {
+      const history = loadHistory().filter(
+        (chat) => chat.id !== chatIdToDelete,
+      );
+      saveHistory(history);
+      try {
+        window.localStorage.removeItem(
+          `${CHAT_STORAGE_PREFIX}${chatIdToDelete}`,
+        );
+      } catch {
+        // ignore
+      }
+      notifyHistoryChanged();
+      // Also delete the thread server-side (best-effort, scoped to the user).
+      if (isAuthenticated) {
+        deleteThread(chatIdToDelete).catch(() => {
+          // offline / already gone — the local removal stands
+        });
+      }
+    },
+    [isAuthenticated],
+  );
 
   const deleteAllChats = useCallback(() => {
     for (const chat of loadHistory()) {
@@ -267,9 +315,45 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
     }
     saveHistory([]);
     notifyHistoryChanged();
-  }, []);
+    if (isAuthenticated) {
+      // Delete every server thread; notify again once the dust settles so
+      // the sidebar doesn't briefly re-show threads from the server.
+      fetchThreads()
+        .then((threads) =>
+          Promise.allSettled(threads.map((t) => deleteThread(t.thread_id))),
+        )
+        .catch(() => {
+          // offline — nothing to delete server-side
+        })
+        .finally(() => notifyHistoryChanged());
+    }
+  }, [isAuthenticated]);
+
+  // Stop generation client-side AND abort the server-side run, so the agent
+  // actually stops (the client abort alone only closes the stream).
+  const stopRef = useRef(stop);
+  useEffect(() => {
+    stopRef.current = stop;
+  }, [stop]);
+
+  const stopGeneration = useCallback(() => {
+    cancelThread(chatId).catch(() => {
+      // 409 = no active run; offline — nothing to cancel
+    });
+    return stopRef.current();
+  }, [chatId]);
 
   const isLoading = status === "submitted" || status === "streaming";
+
+  // Resume a human-in-the-loop interrupt: truncate the interrupted assistant
+  // message and re-request. The transport merges `decision` into the request
+  // body; the backend sees it and resumes the paused thread.
+  const resumeInterrupt = useCallback(
+    (messageId: string, decision: Record<string, unknown>) => {
+      regenerate({ messageId, body: { decision } });
+    },
+    [regenerate],
+  );
 
   // Edit a past user message: truncate the conversation at that point and
   // resend. The transport rewrites the outgoing payload (see above).
@@ -303,12 +387,13 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
       isLoading,
       messages,
       regenerate,
+      resumeInterrupt,
       sendMessage,
       setCurrentModelId,
       setInput,
       setMessages,
       status,
-      stop,
+      stop: stopGeneration,
     }),
     [
       chatId,
@@ -320,12 +405,13 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
       isLoading,
       messages,
       regenerate,
+      resumeInterrupt,
       sendMessage,
       setCurrentModelId,
       setInput,
       setMessages,
       status,
-      stop,
+      stopGeneration,
     ],
   );
 

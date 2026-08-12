@@ -19,6 +19,8 @@ import {
   clearStoredToken,
   fetchWithAuth,
   getStoredToken,
+  refreshAccessToken,
+  setStoredRefreshToken,
   setStoredToken,
 } from "@/lib/auth";
 
@@ -62,8 +64,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     // Optimistically treat a stored token as a session. Only a 401 (token
-    // rejected by the backend) signs the user out; transient network/5xx
-    // failures keep the session so the app still works offline.
+    // rejected by the backend) signs the user out — but first try to
+    // exchange the refresh token, so an expired access token does not end
+    // the session. Transient network/5xx failures keep the session so the
+    // app still works offline.
     setStatus("authenticated");
     fetchMe()
       .then((me) => {
@@ -71,14 +75,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setUser(me);
         }
       })
-      .catch((error: unknown) => {
+      .catch(async (error: unknown) => {
         if (cancelled) {
           return;
         }
         if ((error as { status?: number }).status === 401) {
-          clearStoredToken();
-          setUser(null);
-          setStatus("unauthenticated");
+          const refreshed = await refreshAccessToken();
+          if (cancelled) {
+            return;
+          }
+          if (!refreshed) {
+            clearStoredToken();
+            setUser(null);
+            setStatus("unauthenticated");
+            return;
+          }
+          // Fresh access token: re-validate the session once.
+          fetchMe()
+            .then((me) => {
+              if (!cancelled) {
+                setUser(me);
+              }
+            })
+            .catch(() => {
+              if (!cancelled) {
+                clearStoredToken();
+                setUser(null);
+                setStatus("unauthenticated");
+              }
+            });
         }
       });
 
@@ -111,8 +136,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       throw new Error(detail);
     }
 
-    const { access_token } = (await res.json()) as { access_token: string };
+    const { access_token, refresh_token } = (await res.json()) as {
+      access_token: string;
+      refresh_token?: string;
+    };
     setStoredToken(access_token);
+    if (refresh_token) {
+      setStoredRefreshToken(refresh_token);
+    }
 
     setUser({ username });
     setStatus("authenticated");

@@ -9,6 +9,8 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { AccountTab } from "@/components/settings/account-tab";
+import { UsersTab } from "@/components/settings/users-tab";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -47,6 +49,7 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { useAuth } from "@/hooks/use-auth";
 import { type ChatModel, chatModels, DEFAULT_CHAT_MODEL } from "@/lib/models";
 import {
   createSkill as apiCreateSkill,
@@ -975,6 +978,7 @@ function ModelTab({
 // --- Page ---------------------------------------------------------------------
 
 export default function SettingsPage() {
+  const { user } = useAuth();
   const [settings, setSettings] = useState<SettingsState>(DEFAULT_SETTINGS);
   const [loaded, setLoaded] = useState(false);
   const [backendOnline, setBackendOnline] = useState(false);
@@ -1069,6 +1073,14 @@ export default function SettingsPage() {
             <TabsTrigger value="tools" className="justify-start px-3">
               Tools
             </TabsTrigger>
+            <TabsTrigger value="account" className="justify-start px-3">
+              Account
+            </TabsTrigger>
+            {user?.role === "admin" && (
+              <TabsTrigger value="users" className="justify-start px-3">
+                Users
+              </TabsTrigger>
+            )}
           </TabsList>
           <div className="min-w-0 flex-1">
             {/* Fixed-height content panel: switching tabs never changes the
@@ -1094,6 +1106,14 @@ export default function SettingsPage() {
                   backendOnline={backendOnline}
                 />
               </TabsContent>
+              <TabsContent value="account">
+                <AccountTab />
+              </TabsContent>
+              {user?.role === "admin" && (
+                <TabsContent value="users">
+                  <UsersTab />
+                </TabsContent>
+              )}
             </div>
           </div>
         </Tabs>

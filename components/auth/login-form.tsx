@@ -115,10 +115,19 @@ export function LoginForm() {
           </Button>
         </form>
       </CardContent>
-      <CardFooter className="justify-center">
+      <CardFooter className="flex flex-col items-center gap-1.5">
         <p className="text-xs text-muted-foreground">
           Demo account: <span className="font-medium">admin</span> /{" "}
           <span className="font-medium">admin</span>
+        </p>
+        <p className="text-xs text-muted-foreground">
+          Don&apos;t have an account?{" "}
+          <a
+            className="font-medium text-foreground underline underline-offset-2"
+            href="/register"
+          >
+            Register
+          </a>
         </p>
       </CardFooter>
     </Card>

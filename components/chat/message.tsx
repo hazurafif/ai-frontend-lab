@@ -5,6 +5,7 @@ import { CopyIcon, RefreshCwIcon } from "lucide-react";
 import { useCallback, useState } from "react";
 import type { ChatMessage } from "@/lib/types";
 import { cn, getTextFromMessage, sanitizeText } from "@/lib/utils";
+import { InterruptCard } from "../ai-elements/interrupt-card";
 import {
   MessageAction,
   MessageActions,
@@ -173,6 +174,18 @@ function PreviewMessage({
         part.kind === "app.subagent" || (part.kind as string) === "subagent";
       if (isSubagent) {
         return <SubagentCard key={key} part={part} />;
+      }
+      // Human-in-the-loop pause: approval card. Only the card on the last
+      // assistant message is actionable — resuming truncates that message.
+      if (part.kind === "app.interrupt") {
+        return (
+          <InterruptCard
+            active={isAssistant && isLast && status === "ready"}
+            key={key}
+            message={message}
+            part={part}
+          />
+        );
       }
       return null;
     }

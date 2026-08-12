@@ -14,6 +14,17 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
 import {
   SidebarGroup,
   SidebarGroupContent,
@@ -21,7 +32,14 @@ import {
   SidebarMenu,
   useSidebar,
 } from "@/components/ui/sidebar";
+import { useAuth } from "@/hooks/use-auth";
 import { HISTORY_CHANGED_EVENT, HISTORY_STORAGE_KEY } from "@/lib/constants";
+import {
+  deleteThread,
+  fetchThreads,
+  renameThread,
+  type ServerThread,
+} from "@/lib/threads";
 import type { ChatHistoryItem } from "@/lib/types";
 import { ChatItem } from "./sidebar-history-item";
 
@@ -48,6 +66,26 @@ function saveHistory(history: ChatHistoryItem[]) {
   } catch {
     // ignore
   }
+}
+
+/**
+ * Merge server threads into the local (localStorage) history. The server is
+ * the source of truth for threads it knows; local-only entries (guest chats,
+ * offline) are kept so nothing disappears.
+ */
+function mergeHistory(
+  local: ChatHistoryItem[],
+  threads: ServerThread[],
+): ChatHistoryItem[] {
+  const byId = new Map(local.map((chat) => [chat.id, chat]));
+  for (const thread of threads) {
+    byId.set(thread.thread_id, {
+      id: thread.thread_id,
+      title: thread.title || "New chat",
+      createdAt: thread.created_at,
+    });
+  }
+  return [...byId.values()];
 }
 
 const groupChatsByDate = (chats: ChatHistoryItem[]): GroupedChats => {
@@ -87,24 +125,50 @@ export function SidebarHistory() {
   const { setOpenMobile } = useSidebar();
   const pathname = usePathname();
   const router = useRouter();
+  const { isAuthenticated } = useAuth();
   const id = pathname?.startsWith("/chat/") ? pathname.split("/")[2] : null;
 
   const [history, setHistory] = useState<ChatHistoryItem[]>([]);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [renameTarget, setRenameTarget] = useState<ChatHistoryItem | null>(
+    null,
+  );
+  const [renameDraft, setRenameDraft] = useState("");
+  const [renamePending, setRenamePending] = useState(false);
 
-  // History comes from localStorage (client-only): wait for mount so SSR
-  // (empty) and client (history) HTML match during hydration.
+  // History comes from localStorage + server threads (client-only): wait for
+  // mount so SSR (empty) and client (history) HTML match during hydration.
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
     setMounted(true);
   }, []);
 
+  const refreshServer = useCallback(() => {
+    if (!isAuthenticated) {
+      return;
+    }
+    fetchThreads()
+      .then((threads) => {
+        setHistory((current) => {
+          const merged = mergeHistory(current, threads);
+          saveHistory(merged);
+          return merged;
+        });
+      })
+      .catch(() => {
+        // offline / backend error — keep the local cache
+      });
+  }, [isAuthenticated]);
+
   useEffect(() => {
     if (!mounted) {
       return;
     }
-    const refresh = () => setHistory(loadHistory());
+    const refresh = () => {
+      setHistory(loadHistory());
+      refreshServer();
+    };
 
     refresh();
     window.addEventListener(HISTORY_CHANGED_EVENT, refresh);
@@ -114,7 +178,7 @@ export function SidebarHistory() {
       window.removeEventListener(HISTORY_CHANGED_EVENT, refresh);
       window.removeEventListener("storage", refresh);
     };
-  }, [mounted]);
+  }, [mounted, refreshServer]);
 
   const handleDelete = useCallback(() => {
     const chatToDelete = deleteId;
@@ -129,13 +193,66 @@ export function SidebarHistory() {
     setHistory((current) => current.filter((chat) => chat.id !== chatToDelete));
     saveHistory(history.filter((chat) => chat.id !== chatToDelete));
 
+    // Also delete the thread server-side (best-effort).
+    if (isAuthenticated && chatToDelete) {
+      deleteThread(chatToDelete).catch(() => {
+        // offline / already gone — the local removal stands
+      });
+    }
+
     toast.success("Chat deleted");
-  }, [deleteId, history, pathname, router]);
+  }, [deleteId, history, isAuthenticated, pathname, router]);
 
   const handleShowDeleteDialog = useCallback((chatId: string) => {
     setDeleteId(chatId);
     setShowDeleteDialog(true);
   }, []);
+
+  const handleShowRename = useCallback((chat: ChatHistoryItem) => {
+    setRenameTarget(chat);
+    setRenameDraft(chat.title);
+  }, []);
+
+  const handleRename = useCallback(() => {
+    const target = renameTarget;
+    const title = renameDraft.trim();
+    if (!target || !title) {
+      return;
+    }
+
+    setRenamePending(true);
+    const apply = (updated: ChatHistoryItem) => {
+      setHistory((current) =>
+        current.map((chat) => (chat.id === updated.id ? updated : chat)),
+      );
+      saveHistory(
+        history.map((chat) => (chat.id === updated.id ? updated : chat)),
+      );
+      window.dispatchEvent(new Event(HISTORY_CHANGED_EVENT));
+      toast.success("Chat renamed");
+    };
+
+    if (isAuthenticated) {
+      renameThread(target.id, title)
+        .then((thread) => {
+          apply({
+            id: thread.thread_id,
+            title: thread.title || title,
+            createdAt: thread.created_at,
+          });
+        })
+        .catch(() => {
+          // Offline / backend error: keep the rename local-only.
+          apply({ ...target, title });
+        })
+        .finally(() => setRenamePending(false));
+    } else {
+      apply({ ...target, title });
+      setRenamePending(false);
+    }
+
+    setRenameTarget(null);
+  }, [history, isAuthenticated, renameDraft, renameTarget]);
 
   const groupedChats = groupChatsByDate(history);
 
@@ -164,6 +281,7 @@ export function SidebarHistory() {
                         isActive={chat.id === id}
                         key={chat.id}
                         onDelete={handleShowDeleteDialog}
+                        onRename={handleShowRename}
                         setOpenMobile={setOpenMobile}
                       />
                     ))}
@@ -181,6 +299,7 @@ export function SidebarHistory() {
                         isActive={chat.id === id}
                         key={chat.id}
                         onDelete={handleShowDeleteDialog}
+                        onRename={handleShowRename}
                         setOpenMobile={setOpenMobile}
                       />
                     ))}
@@ -198,6 +317,7 @@ export function SidebarHistory() {
                         isActive={chat.id === id}
                         key={chat.id}
                         onDelete={handleShowDeleteDialog}
+                        onRename={handleShowRename}
                         setOpenMobile={setOpenMobile}
                       />
                     ))}
@@ -215,6 +335,7 @@ export function SidebarHistory() {
                         isActive={chat.id === id}
                         key={chat.id}
                         onDelete={handleShowDeleteDialog}
+                        onRename={handleShowRename}
                         setOpenMobile={setOpenMobile}
                       />
                     ))}
@@ -232,6 +353,7 @@ export function SidebarHistory() {
                         isActive={chat.id === id}
                         key={chat.id}
                         onDelete={handleShowDeleteDialog}
+                        onRename={handleShowRename}
                         setOpenMobile={setOpenMobile}
                       />
                     ))}
@@ -249,7 +371,8 @@ export function SidebarHistory() {
             <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
             <AlertDialogDescription>
               This action cannot be undone. This will permanently delete this
-              chat from your browser.
+              chat
+              {isAuthenticated ? " from your account" : " from your browser"}.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -260,6 +383,53 @@ export function SidebarHistory() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog
+        onOpenChange={(open) => {
+          if (!open) {
+            setRenameTarget(null);
+          }
+        }}
+        open={renameTarget !== null}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Rename chat</DialogTitle>
+            <DialogDescription>
+              Give this conversation a more memorable title.
+            </DialogDescription>
+          </DialogHeader>
+          <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor="rename-title">Title</FieldLabel>
+              <Input
+                id="rename-title"
+                value={renameDraft}
+                onChange={(event) => setRenameDraft(event.target.value)}
+                maxLength={120}
+                autoFocus
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !renamePending) {
+                    handleRename();
+                  }
+                }}
+              />
+            </Field>
+          </FieldGroup>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setRenameTarget(null)}
+              disabled={renamePending}
+            >
+              Cancel
+            </Button>
+            <Button onClick={handleRename} disabled={renamePending}>
+              {renamePending ? "Renaming…" : "Rename"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

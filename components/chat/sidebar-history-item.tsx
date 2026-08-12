@@ -1,5 +1,6 @@
 "use client";
 
+import { PencilIcon } from "lucide-react";
 import Link from "next/link";
 import { memo, useCallback } from "react";
 import type { ChatHistoryItem } from "@/lib/types";
@@ -20,11 +21,13 @@ const PureChatItem = ({
   chat,
   isActive,
   onDelete,
+  onRename,
   setOpenMobile,
 }: {
   chat: ChatHistoryItem;
   isActive: boolean;
   onDelete: (chatId: string) => void;
+  onRename: (chat: ChatHistoryItem) => void;
   setOpenMobile: (open: boolean) => void;
 }) => {
   const closeMobile = useCallback(() => {
@@ -34,6 +37,10 @@ const PureChatItem = ({
   const handleDelete = useCallback(() => {
     onDelete(chat.id);
   }, [chat.id, onDelete]);
+
+  const handleRename = useCallback(() => {
+    onRename(chat);
+  }, [chat, onRename]);
 
   return (
     <SidebarMenuItem>
@@ -59,6 +66,10 @@ const PureChatItem = ({
         </DropdownMenuTrigger>
 
         <DropdownMenuContent align="end" side="bottom">
+          <DropdownMenuItem onClick={handleRename}>
+            <PencilIcon />
+            <span>Rename</span>
+          </DropdownMenuItem>
           <DropdownMenuItem onClick={handleDelete} variant="destructive">
             <TrashIcon />
             <span>Delete</span>
