@@ -15,6 +15,8 @@ export type ServerThread = {
   title: string;
   created_at: string;
   updated_at: string | null;
+  /** Public share token; present when the thread has a share link. */
+  share_token?: string | null;
 };
 
 async function threadFetch(

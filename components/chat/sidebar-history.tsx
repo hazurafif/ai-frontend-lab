@@ -83,6 +83,7 @@ function mergeHistory(
       id: thread.thread_id,
       title: thread.title || "New chat",
       createdAt: thread.created_at,
+      shareToken: thread.share_token ?? null,
     });
   }
   return [...byId.values()];

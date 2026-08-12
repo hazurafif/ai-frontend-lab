@@ -89,8 +89,17 @@ export type SettingsState = {
 
 export const SETTINGS_STORAGE_KEY = "app-settings";
 
+// Model ids before the backend's `provider:model` convention; kept so stored
+// settings from older versions still resolve to a model in chatModels.
+const LEGACY_MODEL_IDS: Record<string, string> = {
+  "gpt-4o-mini": "openai:gpt-4o-mini",
+  "gpt-4o": "openai:gpt-4o",
+  "claude-3-5-sonnet-latest": "anthropic:claude-sonnet-4-5",
+  "gemini-2.0-flash": "google_genai:gemini-2.5-flash",
+};
+
 export const DEFAULT_SETTINGS: SettingsState = {
-  model: "gpt-4o-mini",
+  model: "openai:gpt-4o-mini",
   systemPrompt:
     "You are a helpful AI assistant running inside a backend service. Be concise and direct.",
   interruptOn: false,
@@ -130,6 +139,10 @@ export function loadSettings(): SettingsState {
     return {
       ...DEFAULT_SETTINGS,
       ...parsed,
+      model:
+        LEGACY_MODEL_IDS[parsed.model ?? ""] ??
+        parsed.model ??
+        DEFAULT_SETTINGS.model,
       skills: (parsed.skills ?? DEFAULT_SETTINGS.skills).map(migrateSkill),
       tools: (parsed.tools ?? DEFAULT_SETTINGS.tools).map(migrateTool),
       knowledgeBases: (parsed.knowledgeBases ?? []).map(migrateKnowledgeBase),
@@ -195,10 +208,16 @@ export function saveSettings(settings: SettingsState) {
   }
 }
 
+// Shape of GET /health (backend GET /health) — live backend state.
 export type HealthPayload = {
+  status?: string;
+  persistence?: string;
+  mcp_servers?: string[];
   model?: string;
   interrupt_on?: Record<string, unknown> | null;
   searxng?: { installed?: boolean; enabled?: boolean };
+  execute?: { enabled?: boolean; max_timeout?: number };
+  agent_resources?: { skills?: number; tool_servers?: number };
 };
 
 export async function fetchBackendHealth(): Promise<HealthPayload | null> {

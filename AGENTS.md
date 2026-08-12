@@ -20,7 +20,10 @@ npx tsc --noEmit      # type check (biome does NOT type check — run both)
 - **Before every commit:** `pnpm check`, `npx tsc --noEmit`, and a manual
   smoke test in the browser.
 - **Backend:** the chat proxy expects the FastAPI backend at
-  `BACKEND_URL` (`.env.local`, default `http://localhost:8000`).
+  `BACKEND_URL` (`.env.local`, default `http://localhost:8000`). The backend
+  source lives in the sibling repo `../ai-backend-lab` — **read-only**:
+  never edit it, use it only as a reference to check the latest backend API
+  (routes, chunk shapes, tool names) when working on the frontend contract.
 - **Dev-server cache corruption:** Turbopack's HMR cache breaks after
   runtime errors during Fast Refresh (stale `X is not defined` errors that
   persist after the code is fixed). Fix: `pkill -f "next dev"; rm -rf .next; pnpm dev`.
@@ -131,9 +134,15 @@ lib/
   MCP tool servers are **live** — they sync to the backend's `/agent/skills`
   and `/agent/tools` CRUD via the `app/api/agent/[[...path]]` proxy (backend
   persists them in the LangGraph store; skill changes apply on the next run,
-  tool changes after `POST /agent/tools/reconnect`). The remaining settings
-  (model, prompt, toggles) are still local-only until backend `/settings`
-  endpoints exist.
+  tool changes after `POST /agent/tools/reconnect`). The web-search toggle is
+  also live — it is sent as `enableSearch` in every `/api/chat` request body
+  (backend overrides `SEARXNG_ENABLED` per request). The remaining settings
+  (model, prompt, interrupt toggle) are still local-only until backend
+  `/settings` endpoints exist. Note: the knowledge-base tab calls
+  `/api/agent/knowledge-bases`, which the backend has **not** implemented
+  yet — those fetches 404 until the backend adds the endpoints.
+- `/agent/*` endpoints are **admin-only** on the backend, so the Skills and
+  Tools tabs are admin-gated in the UI (same as Users).
 - Tabs: General | Model | Skills | Tools | Account (+ Users for admins).
   Account shows the profile and self-service password change
   (`POST /api/auth/users/me/password`); Users (admin-only, gated on

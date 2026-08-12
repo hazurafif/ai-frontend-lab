@@ -73,6 +73,14 @@ const PureChatItem = ({
         render={<Link href={`/chat/${chat.id}`} onClick={closeMobile} />}
       >
         <span className="truncate">{chat.title}</span>
+        {chat.shareToken && (
+          <span
+            className="flex size-3 shrink-0 items-center text-sidebar-foreground/40"
+            title="Shared"
+          >
+            <ShareIcon size={12} />
+          </span>
+        )}
       </SidebarMenuButton>
 
       <DropdownMenu modal={true}>
@@ -109,6 +117,9 @@ const PureChatItem = ({
 
 export const ChatItem = memo(PureChatItem, (prevProps, nextProps) => {
   if (prevProps.isActive !== nextProps.isActive) {
+    return false;
+  }
+  if (prevProps.chat.shareToken !== nextProps.chat.shareToken) {
     return false;
   }
   return true;

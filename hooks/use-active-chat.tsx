@@ -26,6 +26,7 @@ import {
 } from "@/lib/constants";
 import { ChatbotError } from "@/lib/errors";
 import { DEFAULT_CHAT_MODEL } from "@/lib/models";
+import { loadSettings } from "@/lib/settings";
 import {
   cancelThread,
   deleteThread,
@@ -227,6 +228,9 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
               id: request.id,
               messages,
               selectedChatModel: currentModelIdRef.current,
+              // Web-search toggle from /settings; the backend overrides its
+              // SEARXNG_ENABLED config per request (enableSearch alias).
+              enableSearch: loadSettings().searxngEnabled,
               ...request.body,
             },
           };

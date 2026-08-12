@@ -17,4 +17,6 @@ export type ChatHistoryItem = {
   id: string;
   title: string;
   createdAt: string; // ISO date, used for grouping in the sidebar
+  // Present when the thread has a public share link (server-side only).
+  shareToken?: string | null;
 };

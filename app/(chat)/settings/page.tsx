@@ -1073,12 +1073,16 @@ export default function SettingsPage() {
             <TabsTrigger value="model" className="justify-start px-3">
               Model
             </TabsTrigger>
-            <TabsTrigger value="skills" className="justify-start px-3">
-              Skills
-            </TabsTrigger>
-            <TabsTrigger value="tools" className="justify-start px-3">
-              Tools
-            </TabsTrigger>
+            {user?.role === "admin" && (
+              <TabsTrigger value="skills" className="justify-start px-3">
+                Skills
+              </TabsTrigger>
+            )}
+            {user?.role === "admin" && (
+              <TabsTrigger value="tools" className="justify-start px-3">
+                Tools
+              </TabsTrigger>
+            )}
             <TabsTrigger value="knowledge-base" className="justify-start px-3">
               Knowledge base
             </TabsTrigger>
@@ -1101,20 +1105,24 @@ export default function SettingsPage() {
               <TabsContent value="model">
                 <ModelTab settings={settings} setSettings={update} />
               </TabsContent>
-              <TabsContent value="skills">
-                <SkillsTab
-                  settings={settings}
-                  setSettings={update}
-                  backendOnline={backendOnline}
-                />
-              </TabsContent>
-              <TabsContent value="tools">
-                <ToolsTab
-                  settings={settings}
-                  setSettings={update}
-                  backendOnline={backendOnline}
-                />
-              </TabsContent>
+              {user?.role === "admin" && (
+                <TabsContent value="skills">
+                  <SkillsTab
+                    settings={settings}
+                    setSettings={update}
+                    backendOnline={backendOnline}
+                  />
+                </TabsContent>
+              )}
+              {user?.role === "admin" && (
+                <TabsContent value="tools">
+                  <ToolsTab
+                    settings={settings}
+                    setSettings={update}
+                    backendOnline={backendOnline}
+                  />
+                </TabsContent>
+              )}
               <TabsContent value="knowledge-base">
                 <KnowledgeBaseTab
                   settings={settings}
