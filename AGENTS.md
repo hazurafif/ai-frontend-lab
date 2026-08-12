@@ -20,8 +20,7 @@ npx tsc --noEmit      # type check (biome does NOT type check — run both)
 - **Before every commit:** `pnpm check`, `npx tsc --noEmit`, and a manual
   smoke test in the browser.
 - **Backend:** the chat proxy expects the FastAPI backend at
-  `BACKEND_URL` (`.env.local`, default `http://localhost:8000`). Backend
-  repo: `../ai-backend-lab` (`uv run uvicorn app.main:app --port 8000`).
+  `BACKEND_URL` (`.env.local`, default `http://localhost:8000`).
 - **Dev-server cache corruption:** Turbopack's HMR cache breaks after
   runtime errors during Fast Refresh (stale `X is not defined` errors that
   persist after the code is fixed). Fix: `pkill -f "next dev"; rm -rf .next; pnpm dev`.
