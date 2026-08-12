@@ -10,6 +10,7 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { AccountTab } from "@/components/settings/account-tab";
+import { KnowledgeBaseTab } from "@/components/settings/knowledge-base-tab";
 import { UsersTab } from "@/components/settings/users-tab";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -59,10 +60,12 @@ import {
   deleteToolServer as apiDeleteToolServer,
   updateSkill as apiUpdateSkill,
   updateToolServer as apiUpdateToolServer,
+  backendKnowledgeBaseToKnowledgeBase,
   backendSkillToSkill,
   backendToolToToolConfig,
   DEFAULT_SETTINGS,
   fetchBackendHealth,
+  fetchKnowledgeBases,
   fetchSkills,
   fetchToolServers,
   loadSettings,
@@ -1001,8 +1004,8 @@ export default function SettingsPage() {
         searxngEnabled: health.searxng?.enabled ?? current.searxngEnabled,
       }));
       // Replace the local cache with the backend's live agent resources.
-      Promise.all([fetchSkills(), fetchToolServers()])
-        .then(([skills, tools]) => {
+      Promise.all([fetchSkills(), fetchToolServers(), fetchKnowledgeBases()])
+        .then(([skills, tools, knowledgeBases]) => {
           setSettings((current) => ({
             ...current,
             skills: skills.map(backendSkillToSkill),
@@ -1011,6 +1014,9 @@ export default function SettingsPage() {
                 tool,
                 current.tools.find((stored) => stored.name === tool.name),
               ),
+            ),
+            knowledgeBases: knowledgeBases.map(
+              backendKnowledgeBaseToKnowledgeBase,
             ),
           }));
         })
@@ -1073,6 +1079,9 @@ export default function SettingsPage() {
             <TabsTrigger value="tools" className="justify-start px-3">
               Tools
             </TabsTrigger>
+            <TabsTrigger value="knowledge-base" className="justify-start px-3">
+              Knowledge base
+            </TabsTrigger>
             <TabsTrigger value="account" className="justify-start px-3">
               Account
             </TabsTrigger>
@@ -1101,6 +1110,13 @@ export default function SettingsPage() {
               </TabsContent>
               <TabsContent value="tools">
                 <ToolsTab
+                  settings={settings}
+                  setSettings={update}
+                  backendOnline={backendOnline}
+                />
+              </TabsContent>
+              <TabsContent value="knowledge-base">
+                <KnowledgeBaseTab
                   settings={settings}
                   setSettings={update}
                   backendOnline={backendOnline}

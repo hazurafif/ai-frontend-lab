@@ -40,6 +40,43 @@ export type ToolConfig = {
   env?: Record<string, string>;
 };
 
+// --- Knowledge base (RAG document store) ------------------------------------
+//
+// Contract the backend is expected to implement under /agent/knowledge-bases
+// (proxied at /api/agent/knowledge-bases, same proxy as skills/tools):
+//
+//   GET    /knowledge-bases                       → list all KBs
+//   POST   /knowledge-bases                       → create { name, description }
+//   PUT    /knowledge-bases/{name}                → update { name, description }
+//   DELETE /knowledge-bases/{name}                → delete KB + all its files
+//   POST   /knowledge-bases/{name}/files          → multipart upload
+//                                                    (FormData field "files",
+//                                                     one or more entries)
+//   DELETE /knowledge-bases/{name}/files/{file}   → delete one stored file
+//
+// File *content* is never stored on the client — the UI keeps metadata only
+// and uploads the raw File objects straight to the backend.
+
+export type KnowledgeBaseFile = {
+  name: string;
+  size: number; // bytes
+  type: string; // mime type
+};
+
+export type KnowledgeBase = {
+  // Backend key: lowercase alphanumeric + hyphens (same rule as skills).
+  name: string;
+  description: string;
+  files: KnowledgeBaseFile[];
+  updatedAt: string;
+};
+
+export type BackendKnowledgeBase = {
+  name: string;
+  description: string;
+  files: { name: string; size: number; type: string }[];
+};
+
 export type SettingsState = {
   model: string;
   systemPrompt: string;
@@ -47,6 +84,7 @@ export type SettingsState = {
   searxngEnabled: boolean;
   skills: Skill[];
   tools: ToolConfig[];
+  knowledgeBases: KnowledgeBase[];
 };
 
 export const SETTINGS_STORAGE_KEY = "app-settings";
@@ -76,6 +114,7 @@ export const DEFAULT_SETTINGS: SettingsState = {
       enabled: false,
     },
   ],
+  knowledgeBases: [],
 };
 
 export function loadSettings(): SettingsState {
@@ -93,6 +132,7 @@ export function loadSettings(): SettingsState {
       ...parsed,
       skills: (parsed.skills ?? DEFAULT_SETTINGS.skills).map(migrateSkill),
       tools: (parsed.tools ?? DEFAULT_SETTINGS.tools).map(migrateTool),
+      knowledgeBases: (parsed.knowledgeBases ?? []).map(migrateKnowledgeBase),
     };
   } catch {
     return DEFAULT_SETTINGS;
@@ -115,6 +155,21 @@ function migrateSkill(skill: Partial<Skill> & { id?: string }): Skill {
       content: file.content,
     })),
     updatedAt: skill.updatedAt ?? "",
+  };
+}
+
+function migrateKnowledgeBase(
+  kb: Partial<KnowledgeBase> & { id?: string },
+): KnowledgeBase {
+  return {
+    name: kb.name ?? kb.id ?? "",
+    description: kb.description ?? "",
+    files: (kb.files ?? []).map((file) => ({
+      name: file.name,
+      size: file.size,
+      type: file.type,
+    })),
+    updatedAt: kb.updatedAt ?? "",
   };
 }
 
@@ -373,5 +428,96 @@ export function backendToolToToolConfig(
     args: backend.args,
     headers: backend.headers,
     env: backend.env,
+  };
+}
+
+// --- knowledge bases ---
+
+export async function fetchKnowledgeBases(): Promise<BackendKnowledgeBase[]> {
+  const res = await agentFetch("/knowledge-bases");
+  return (await res.json()) as BackendKnowledgeBase[];
+}
+
+export async function createKnowledgeBase(payload: {
+  name: string;
+  description: string;
+}): Promise<BackendKnowledgeBase> {
+  const res = await agentFetch("/knowledge-bases", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  return (await res.json()) as BackendKnowledgeBase;
+}
+
+export async function updateKnowledgeBase(
+  name: string,
+  payload: { name: string; description: string },
+): Promise<BackendKnowledgeBase> {
+  const res = await agentFetch(`/knowledge-bases/${encodeURIComponent(name)}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+  return (await res.json()) as BackendKnowledgeBase;
+}
+
+export async function deleteKnowledgeBase(name: string): Promise<void> {
+  await agentFetch(`/knowledge-bases/${encodeURIComponent(name)}`, {
+    method: "DELETE",
+  });
+}
+
+// Multipart upload — must NOT go through agentFetch (it forces a JSON
+// Content-Type which would break the boundary header). fetchWithAuth only
+// injects the auth headers, so the browser sets multipart/form-data itself.
+export async function uploadKnowledgeBaseFiles(
+  name: string,
+  files: File[],
+): Promise<BackendKnowledgeBase> {
+  const form = new FormData();
+  for (const file of files) {
+    form.append("files", file);
+  }
+  let res: Response;
+  try {
+    res = await fetchWithAuth(
+      `/api/agent/knowledge-bases/${encodeURIComponent(name)}/files`,
+      { method: "POST", body: form },
+    );
+  } catch {
+    throw new Error("Backend unreachable.");
+  }
+  if (!res.ok) {
+    let detail = `Upload failed (${res.status})`;
+    try {
+      const body = (await res.json()) as { detail?: string };
+      if (body.detail) {
+        detail = body.detail;
+      }
+    } catch {
+      // non-JSON error body — keep the default message
+    }
+    throw new Error(detail);
+  }
+  return (await res.json()) as BackendKnowledgeBase;
+}
+
+export async function deleteKnowledgeBaseFile(
+  name: string,
+  fileName: string,
+): Promise<void> {
+  await agentFetch(
+    `/knowledge-bases/${encodeURIComponent(name)}/files/${encodeURIComponent(fileName)}`,
+    { method: "DELETE" },
+  );
+}
+
+export function backendKnowledgeBaseToKnowledgeBase(
+  backend: BackendKnowledgeBase,
+): KnowledgeBase {
+  return {
+    name: backend.name,
+    description: backend.description ?? "",
+    files: backend.files ?? [],
+    updatedAt: "",
   };
 }
