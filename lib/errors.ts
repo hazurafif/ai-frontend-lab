@@ -6,7 +6,7 @@ export type ErrorType =
   | "rate_limit"
   | "offline";
 
-export type Surface = "chat" | "api" | "history";
+export type Surface = "chat" | "api" | "history" | "share";
 
 export type ErrorCode = `${ErrorType}:${Surface}`;
 
@@ -16,6 +16,7 @@ export const visibilityBySurface: Record<Surface, ErrorVisibility> = {
   api: "response",
   chat: "response",
   history: "response",
+  share: "response",
 };
 
 export class ChatbotError extends Error {
@@ -70,6 +71,14 @@ export function getMessageByErrorCode(errorCode: ErrorCode): string {
       return "You've reached the message limit. Try again later.";
     case "offline:chat":
       return "We're having trouble sending your message. Please check your internet connection and try again.";
+    case "bad_request:share":
+      return "Couldn't share this chat. Please try again.";
+    case "unauthorized:share":
+      return "Please sign in to share a chat.";
+    case "not_found:share":
+      return "The shared chat could not be found.";
+    case "offline:share":
+      return "We're having trouble sharing your chat. Please check your internet connection and try again.";
     default:
       return "Something went wrong. Please try again later.";
   }

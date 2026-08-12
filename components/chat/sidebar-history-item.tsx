@@ -3,6 +3,8 @@
 import { PencilIcon } from "lucide-react";
 import Link from "next/link";
 import { memo, useCallback } from "react";
+import { toast } from "@/components/chat/toast";
+import { createChatShare } from "@/lib/share";
 import type { ChatHistoryItem } from "@/lib/types";
 import {
   DropdownMenu,
@@ -15,7 +17,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "../ui/sidebar";
-import { MoreHorizontalIcon, TrashIcon } from "./icons";
+import { MoreHorizontalIcon, ShareIcon, TrashIcon } from "./icons";
 
 const PureChatItem = ({
   chat,
@@ -42,6 +44,27 @@ const PureChatItem = ({
     onRename(chat);
   }, [chat, onRename]);
 
+  const handleShare = useCallback(async () => {
+    try {
+      const result = await createChatShare(chat.id);
+      await navigator.clipboard.writeText(result.url);
+      closeMobile();
+      toast({
+        description: "Share link copied to clipboard",
+        type: "success",
+      });
+    } catch (error) {
+      closeMobile();
+      toast({
+        description:
+          error instanceof Error
+            ? error.message
+            : "Couldn't share this chat. Please try again.",
+        type: "error",
+      });
+    }
+  }, [chat.id, closeMobile]);
+
   return (
     <SidebarMenuItem>
       <SidebarMenuButton
@@ -66,6 +89,10 @@ const PureChatItem = ({
         </DropdownMenuTrigger>
 
         <DropdownMenuContent align="end" side="bottom">
+          <DropdownMenuItem onClick={handleShare}>
+            <ShareIcon />
+            <span>Share</span>
+          </DropdownMenuItem>
           <DropdownMenuItem onClick={handleRename}>
             <PencilIcon />
             <span>Rename</span>
