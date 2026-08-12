@@ -1,0 +1,23 @@
+{
+  "worktree": {
+    "setup": [
+      "pnpm install --frozen-lockfile",
+      "test -f \"$PASEO_SOURCE_CHECKOUT_PATH/.env.local\" && cp \"$PASEO_SOURCE_CHECKOUT_PATH/.env.local\" .env.local || true"
+    ]
+  },
+  "scripts": {
+    "web": {
+      "type": "service",
+      "command": "pnpm dev -- -p $PASEO_PORT"
+    },
+    "check": {
+      "command": "pnpm check"
+    },
+    "typecheck": {
+      "command": "npx tsc --noEmit"
+    },
+    "build": {
+      "command": "pnpm build"
+    }
+  }
+}
