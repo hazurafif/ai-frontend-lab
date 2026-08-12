@@ -8,6 +8,7 @@
 // until the backend /settings endpoints exist.
 
 import { fetchWithAuth } from "@/lib/auth";
+import { generateUUID } from "@/lib/utils";
 
 export type SkillFile = {
   // Relative path under the skill root (skill-creator layout), e.g.
@@ -42,39 +43,77 @@ export type ToolConfig = {
 
 // --- Knowledge base (RAG document store) ------------------------------------
 //
-// Contract the backend is expected to implement under /agent/knowledge-bases
-// (proxied at /api/agent/knowledge-bases, same proxy as skills/tools):
+// Contract with the backend's /kb endpoints (proxied at /api/kb, per-user
+// owner-scoped auth — NOT the admin-only /agent resources):
 //
-//   GET    /knowledge-bases                       → list all KBs
-//   POST   /knowledge-bases                       → create { name, description }
-//   PUT    /knowledge-bases/{name}                → update { name, description }
-//   DELETE /knowledge-bases/{name}                → delete KB + all its files
-//   POST   /knowledge-bases/{name}/files          → multipart upload
-//                                                    (FormData field "files",
-//                                                     one or more entries)
-//   DELETE /knowledge-bases/{name}/files/{file}   → delete one stored file
+//   GET    /kb                           → list the current user's KBs
+//   POST   /kb                           → create { name, description }
+//   GET    /kb/{id}                      → one KB
+//   PATCH  /kb/{id}                      → update { name, description }
+//   DELETE /kb/{id}                      → delete KB + documents + vectors
+//   POST   /kb/{id}/files                → multipart upload
+//                                            (FormData fields "files" and
+//                                             "paths", paired by index, so
+//                                             folder uploads keep structure)
+//   GET    /kb/{id}/files                → list documents (ingest status)
+//   GET    /kb/{id}/files/{docId}        → document detail
+//   GET    /kb/{id}/files/{docId}/content → raw file bytes (inline preview)
+//   DELETE /kb/{id}/files/{docId}        → delete one document
+//   POST   /kb/{id}/reindex              → re-parse + re-embed all documents
+//   GET    /kb/search?q=&limit=          → hybrid search across the user's KBs
 //
-// File *content* is never stored on the client — the UI keeps metadata only
-// and uploads the raw File objects straight to the backend.
+// KBs are keyed by backend UUID (not name). Documents are ingested
+// synchronously on upload: status pending → processing → ready (or failed +
+// error); the upload response reports per-file results (unsupported
+// extension, quota, parse errors). File *content* is never stored on the
+// client — the UI keeps metadata only and uploads raw File objects.
 
-export type KnowledgeBaseFile = {
-  name: string;
-  size: number; // bytes
-  type: string; // mime type
+export type KnowledgeBaseDocument = {
+  id: string; // backend UUID
+  path: string; // relative path, may include folders (subfolder/doc.md)
+  mimeType: string | null;
+  sizeBytes: number;
+  status: "pending" | "processing" | "ready" | "failed";
+  error: string | null;
+  chunkCount: number;
 };
 
 export type KnowledgeBase = {
-  // Backend key: lowercase alphanumeric + hyphens (same rule as skills).
-  name: string;
+  id: string; // backend UUID — the key for all KB operations
+  name: string; // display name (letters, digits, spaces, dots, dashes, _)
   description: string;
-  files: KnowledgeBaseFile[];
+  documents: KnowledgeBaseDocument[];
   updatedAt: string;
 };
 
 export type BackendKnowledgeBase = {
+  id: string;
   name: string;
-  description: string;
-  files: { name: string; size: number; type: string }[];
+  description: string | null;
+  created_at: string;
+  updated_at: string;
+  document_count: number;
+  chunk_count: number;
+};
+
+export type BackendKnowledgeBaseDocument = {
+  id: string;
+  kb_id: string;
+  path: string;
+  mime_type: string | null;
+  size_bytes: number;
+  status: "pending" | "processing" | "ready" | "failed";
+  error: string | null;
+  chunk_count: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type KnowledgeBaseUploadResult = {
+  path: string;
+  ok: boolean;
+  doc_id: string | null;
+  error: string | null;
 };
 
 export type SettingsState = {
@@ -175,12 +214,17 @@ function migrateKnowledgeBase(
   kb: Partial<KnowledgeBase> & { id?: string },
 ): KnowledgeBase {
   return {
-    name: kb.name ?? kb.id ?? "",
+    id: kb.id ?? generateUUID(),
+    name: kb.name ?? "",
     description: kb.description ?? "",
-    files: (kb.files ?? []).map((file) => ({
-      name: file.name,
-      size: file.size,
-      type: file.type,
+    documents: (kb.documents ?? []).map((doc) => ({
+      id: doc.id ?? generateUUID(),
+      path: doc.path,
+      mimeType: doc.mimeType ?? null,
+      sizeBytes: doc.sizeBytes,
+      status: doc.status ?? "pending",
+      error: doc.error ?? null,
+      chunkCount: doc.chunkCount ?? 0,
     })),
     updatedAt: kb.updatedAt ?? "",
   };
@@ -236,6 +280,10 @@ export async function fetchBackendHealth(): Promise<HealthPayload | null> {
 
 // Agent Skills spec: lowercase alphanumeric + hyphens (backend validates).
 export const SKILL_NAME_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+// KB display-name spec (backend KB_NAME_RE): starts alnum, then letters,
+// digits, spaces, dots, dashes, underscores — max 64 chars.
+export const KB_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9 _.-]{0,63}$/;
 
 // Backend file-path pattern: segments start with alnum, then [A-Za-z0-9._-].
 // Rejects leading/trailing/double slashes, "..", backslashes and spaces.
@@ -452,8 +500,35 @@ export function backendToolToToolConfig(
 
 // --- knowledge bases ---
 
+// JSON helper against /api/kb (per-user owner-scoped endpoints; the KB
+// routes live under /kb in the backend, not under /agent).
+async function kbFetch(path: string, init?: RequestInit): Promise<Response> {
+  let res: Response;
+  try {
+    res = await fetchWithAuth(`/api${path}`, {
+      ...init,
+      headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+    });
+  } catch {
+    throw new Error("Backend unreachable.");
+  }
+  if (!res.ok) {
+    let detail = `Request failed (${res.status})`;
+    try {
+      const body = (await res.json()) as { detail?: string };
+      if (body.detail) {
+        detail = body.detail;
+      }
+    } catch {
+      // non-JSON error body — keep the default message
+    }
+    throw new Error(detail);
+  }
+  return res;
+}
+
 export async function fetchKnowledgeBases(): Promise<BackendKnowledgeBase[]> {
-  const res = await agentFetch("/knowledge-bases");
+  const res = await kbFetch("/kb");
   return (await res.json()) as BackendKnowledgeBase[];
 }
 
@@ -461,7 +536,7 @@ export async function createKnowledgeBase(payload: {
   name: string;
   description: string;
 }): Promise<BackendKnowledgeBase> {
-  const res = await agentFetch("/knowledge-bases", {
+  const res = await kbFetch("/kb", {
     method: "POST",
     body: JSON.stringify(payload),
   });
@@ -469,39 +544,50 @@ export async function createKnowledgeBase(payload: {
 }
 
 export async function updateKnowledgeBase(
-  name: string,
-  payload: { name: string; description: string },
+  id: string,
+  payload: { name?: string; description?: string },
 ): Promise<BackendKnowledgeBase> {
-  const res = await agentFetch(`/knowledge-bases/${encodeURIComponent(name)}`, {
-    method: "PUT",
+  const res = await kbFetch(`/kb/${encodeURIComponent(id)}`, {
+    method: "PATCH",
     body: JSON.stringify(payload),
   });
   return (await res.json()) as BackendKnowledgeBase;
 }
 
-export async function deleteKnowledgeBase(name: string): Promise<void> {
-  await agentFetch(`/knowledge-bases/${encodeURIComponent(name)}`, {
-    method: "DELETE",
-  });
+export async function deleteKnowledgeBase(id: string): Promise<void> {
+  await kbFetch(`/kb/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
-// Multipart upload — must NOT go through agentFetch (it forces a JSON
+export async function fetchKnowledgeBaseDocuments(
+  id: string,
+): Promise<BackendKnowledgeBaseDocument[]> {
+  const res = await kbFetch(`/kb/${encodeURIComponent(id)}/files`);
+  return (await res.json()) as BackendKnowledgeBaseDocument[];
+}
+
+// Multipart upload — must NOT go through kbFetch (it forces a JSON
 // Content-Type which would break the boundary header). fetchWithAuth only
 // injects the auth headers, so the browser sets multipart/form-data itself.
+// The optional `paths` list pairs each file with a relative path (folder
+// uploads keep their structure); the response is per-file results.
 export async function uploadKnowledgeBaseFiles(
-  name: string,
+  id: string,
   files: File[],
-): Promise<BackendKnowledgeBase> {
+  paths?: string[],
+): Promise<KnowledgeBaseUploadResult[]> {
   const form = new FormData();
   for (const file of files) {
     form.append("files", file);
   }
+  for (const path of paths ?? files.map((file) => file.name)) {
+    form.append("paths", path);
+  }
   let res: Response;
   try {
-    res = await fetchWithAuth(
-      `/api/agent/knowledge-bases/${encodeURIComponent(name)}/files`,
-      { method: "POST", body: form },
-    );
+    res = await fetchWithAuth(`/api/kb/${encodeURIComponent(id)}/files`, {
+      method: "POST",
+      body: form,
+    });
   } catch {
     throw new Error("Backend unreachable.");
   }
@@ -517,26 +603,69 @@ export async function uploadKnowledgeBaseFiles(
     }
     throw new Error(detail);
   }
-  return (await res.json()) as BackendKnowledgeBase;
+  const body = (await res.json()) as { results?: KnowledgeBaseUploadResult[] };
+  return body.results ?? [];
 }
 
 export async function deleteKnowledgeBaseFile(
-  name: string,
-  fileName: string,
+  kbId: string,
+  docId: string,
 ): Promise<void> {
-  await agentFetch(
-    `/knowledge-bases/${encodeURIComponent(name)}/files/${encodeURIComponent(fileName)}`,
+  await kbFetch(
+    `/kb/${encodeURIComponent(kbId)}/files/${encodeURIComponent(docId)}`,
     { method: "DELETE" },
   );
 }
 
+export async function reindexKnowledgeBase(id: string): Promise<void> {
+  await kbFetch(`/kb/${encodeURIComponent(id)}/reindex`, { method: "POST" });
+}
+
+// Raw content download (inline preview) — link target, not a JSON call.
+export function knowledgeBaseDocumentUrl(kbId: string, docId: string): string {
+  return `/api/kb/${encodeURIComponent(kbId)}/files/${encodeURIComponent(docId)}/content`;
+}
+
+export function backendDocumentToKnowledgeBaseDocument(
+  doc: BackendKnowledgeBaseDocument,
+): KnowledgeBaseDocument {
+  return {
+    id: doc.id,
+    path: doc.path,
+    mimeType: doc.mime_type,
+    sizeBytes: doc.size_bytes,
+    status: doc.status,
+    error: doc.error,
+    chunkCount: doc.chunk_count,
+  };
+}
+
 export function backendKnowledgeBaseToKnowledgeBase(
   backend: BackendKnowledgeBase,
+  documents: BackendKnowledgeBaseDocument[] = [],
 ): KnowledgeBase {
   return {
+    id: backend.id,
     name: backend.name,
     description: backend.description ?? "",
-    files: backend.files ?? [],
-    updatedAt: "",
+    documents: documents.map(backendDocumentToKnowledgeBaseDocument),
+    updatedAt: backend.updated_at,
   };
+}
+
+// KB list + per-KB document lists in one round trip (the settings page
+// shows ingest status next to every document).
+export async function fetchKnowledgeBasesWithDocuments(): Promise<
+  KnowledgeBase[]
+> {
+  const kbs = await fetchKnowledgeBases();
+  const withDocs = await Promise.all(
+    kbs.map(async (kb) => ({
+      backend: kb,
+      documents: await fetchKnowledgeBaseDocuments(kb.id),
+    })),
+  );
+  return withDocs.map(({ backend, documents }) =>
+    backendKnowledgeBaseToKnowledgeBase(backend, documents),
+  );
 }

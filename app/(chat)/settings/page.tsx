@@ -60,12 +60,11 @@ import {
   deleteToolServer as apiDeleteToolServer,
   updateSkill as apiUpdateSkill,
   updateToolServer as apiUpdateToolServer,
-  backendKnowledgeBaseToKnowledgeBase,
   backendSkillToSkill,
   backendToolToToolConfig,
   DEFAULT_SETTINGS,
   fetchBackendHealth,
-  fetchKnowledgeBases,
+  fetchKnowledgeBasesWithDocuments,
   fetchSkills,
   fetchToolServers,
   loadSettings,
@@ -1004,7 +1003,11 @@ export default function SettingsPage() {
         searxngEnabled: health.searxng?.enabled ?? current.searxngEnabled,
       }));
       // Replace the local cache with the backend's live agent resources.
-      Promise.all([fetchSkills(), fetchToolServers(), fetchKnowledgeBases()])
+      Promise.all([
+        fetchSkills(),
+        fetchToolServers(),
+        fetchKnowledgeBasesWithDocuments(),
+      ])
         .then(([skills, tools, knowledgeBases]) => {
           setSettings((current) => ({
             ...current,
@@ -1015,9 +1018,7 @@ export default function SettingsPage() {
                 current.tools.find((stored) => stored.name === tool.name),
               ),
             ),
-            knowledgeBases: knowledgeBases.map(
-              backendKnowledgeBaseToKnowledgeBase,
-            ),
+            knowledgeBases,
           }));
         })
         .catch(() => {

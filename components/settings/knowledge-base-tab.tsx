@@ -2,9 +2,12 @@
 
 import {
   DatabaseIcon,
+  DownloadIcon,
   FileIcon,
   FileUpIcon,
+  FolderUpIcon,
   PlusIcon,
+  RefreshCcwIcon,
   TrashIcon,
   UploadCloudIcon,
   XIcon,
@@ -30,19 +33,23 @@ import {
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import {
+  backendDocumentToKnowledgeBaseDocument,
   createKnowledgeBase,
   deleteKnowledgeBase,
   deleteKnowledgeBaseFile,
+  fetchKnowledgeBaseDocuments,
+  KB_NAME_RE,
   type KnowledgeBase,
-  normalizeSkillName,
+  type KnowledgeBaseDocument,
+  knowledgeBaseDocumentUrl,
+  reindexKnowledgeBase,
   type SettingsState,
-  SKILL_NAME_RE,
   updateKnowledgeBase,
   uploadKnowledgeBaseFiles,
 } from "@/lib/settings";
-import { cn } from "@/lib/utils";
+import { cn, generateUUID } from "@/lib/utils";
 
-const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25 MB per file
+const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25 MB per file (backend default)
 
 function Card({ className, ...props }: React.ComponentProps<"div">) {
   return (
@@ -68,8 +75,36 @@ function formatBytes(bytes: number): string {
   return `${(bytes / 1024 ** index).toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
 }
 
-function toFileMeta(file: File): KnowledgeBase["files"][number] {
-  return { name: file.name, size: file.size, type: file.type };
+function DocumentStatusBadge({ doc }: { doc: KnowledgeBaseDocument }) {
+  if (doc.status === "failed") {
+    return (
+      <Badge variant="destructive" title={doc.error ?? undefined}>
+        Failed
+      </Badge>
+    );
+  }
+  if (doc.status === "ready") {
+    return <Badge variant="outline">Ready</Badge>;
+  }
+  return (
+    <Badge variant="outline" className="text-muted-foreground">
+      {doc.status === "processing" ? "Processing" : "Pending"}
+    </Badge>
+  );
+}
+
+// Local-only metadata for offline mode (backend unreachable): documents get
+// synthetic ids and stay "pending" until a backend sync exists.
+function toLocalDocument(file: File): KnowledgeBaseDocument {
+  return {
+    id: generateUUID(),
+    path: file.webkitRelativePath || file.name,
+    mimeType: file.type,
+    sizeBytes: file.size,
+    status: "pending",
+    error: null,
+    chunkCount: 0,
+  };
 }
 
 export function KnowledgeBaseTab({
@@ -90,12 +125,14 @@ export function KnowledgeBaseTab({
   const dragCounter = useRef(0);
   const [saving, setSaving] = useState(false);
   const [uploadingKb, setUploadingKb] = useState<string | null>(null);
+  const [reindexingKb, setReindexingKb] = useState<string | null>(null);
 
   const openNew = () => {
     const fresh: KnowledgeBase = {
+      id: generateUUID(),
       name: "",
       description: "",
-      files: [],
+      documents: [],
       updatedAt: new Date().toISOString(),
     };
     setDraft(fresh);
@@ -106,7 +143,7 @@ export function KnowledgeBaseTab({
   };
 
   const openEdit = (kb: KnowledgeBase) => {
-    setDraft({ ...kb, files: [...kb.files] });
+    setDraft({ ...kb, documents: [...kb.documents] });
     setPendingFiles([]);
     setNameError(null);
     setFileError(null);
@@ -134,15 +171,45 @@ export function KnowledgeBaseTab({
   };
 
   const applyKbUpdate = (
-    name: string,
+    id: string,
     patch: (kb: KnowledgeBase) => KnowledgeBase,
   ) => {
     setSettings((current) => ({
       ...current,
       knowledgeBases: current.knowledgeBases.map((kb) =>
-        kb.name === name ? patch(kb) : kb,
+        kb.id === id ? patch(kb) : kb,
       ),
     }));
+  };
+
+  // Refresh one KB's documents from the backend (ingest statuses change
+  // after upload/reindex). Returns the mapped list for callers that also
+  // need it synchronously.
+  const loadDocuments = async (
+    kbId: string,
+  ): Promise<KnowledgeBaseDocument[]> => {
+    try {
+      const docs = await fetchKnowledgeBaseDocuments(kbId);
+      return docs.map(backendDocumentToKnowledgeBaseDocument);
+    } catch {
+      return [];
+    }
+  };
+
+  // Upload files and surface per-file failures (unsupported extension,
+  // quota, parse error). The backend ingests synchronously and reports
+  // each file individually.
+  const uploadWithResults = async (kbId: string, files: File[]) => {
+    const paths = files.map((file) => file.webkitRelativePath || file.name);
+    const results = await uploadKnowledgeBaseFiles(kbId, files, paths);
+    const failed = results.filter((result) => !result.ok);
+    if (failed.length > 0) {
+      const shown = failed.slice(0, 4);
+      const more = failed.length - shown.length;
+      toast.warning(
+        `${failed.length} of ${results.length} file${results.length > 1 ? "s" : ""} failed to upload: ${shown.map((result) => `${result.path} (${result.error ?? "unknown error"})`).join(", ")}${more > 0 ? ` +${more} more` : ""}`,
+      );
+    }
   };
 
   // Create / edit name+description, then upload the files picked in the dialog.
@@ -150,38 +217,33 @@ export function KnowledgeBaseTab({
     if (!draft) {
       return;
     }
-    const name = normalizeSkillName(draft.name.trim());
-    if (!SKILL_NAME_RE.test(name)) {
+    const name = draft.name.trim();
+    if (!KB_NAME_RE.test(name)) {
       setNameError(
-        "Use lowercase letters, numbers, and hyphens (e.g. company-policies).",
+        "Use letters, numbers, spaces, dots, dashes, or underscores (max 64 characters).",
       );
       return;
     }
-    const originalName = editing?.name ?? "";
-    const kb: KnowledgeBase = {
-      name,
-      description: draft.description.trim(),
-      files: [...(editing?.files ?? []), ...pendingFiles.map(toFileMeta)],
-      updatedAt: new Date().toISOString(),
-    };
-    const isNew = !settings.knowledgeBases.some((k) => k.name === originalName);
+    const original = editing
+      ? (settings.knowledgeBases.find((k) => k.id === editing.id) ?? null)
+      : null;
+    const description = draft.description.trim();
+    let kbId = draft.id;
     setSaving(true);
     try {
       if (backendOnline) {
-        if (isNew) {
-          await createKnowledgeBase({ name, description: kb.description });
+        if (!original) {
+          const created = await createKnowledgeBase({ name, description });
+          kbId = created.id;
         } else {
-          await updateKnowledgeBase(originalName, {
+          const updated = await updateKnowledgeBase(original.id, {
             name,
-            description: kb.description,
+            description,
           });
-          if (originalName !== name) {
-            // Backend PUT keys the entry by body.name — drop the stale key.
-            await deleteKnowledgeBase(originalName);
-          }
+          kbId = updated.id;
         }
         if (pendingFiles.length > 0) {
-          await uploadKnowledgeBaseFiles(name, pendingFiles);
+          await uploadWithResults(kbId, pendingFiles);
         }
       }
     } catch (error) {
@@ -193,15 +255,25 @@ export function KnowledgeBaseTab({
       setSaving(false);
       return;
     }
+    // When online, documents come from the backend (fresh ingest status);
+    // offline keeps the local metadata only.
+    const documents = backendOnline
+      ? await loadDocuments(kbId)
+      : [...(original?.documents ?? []), ...pendingFiles.map(toLocalDocument)];
     setSettings((current) => {
-      const rest = current.knowledgeBases.filter(
-        (k) => k.name !== originalName,
-      );
-      const exists = rest.some((k) => k.name === name);
+      const rest = current.knowledgeBases.filter((k) => k.id !== original?.id);
+      const exists = rest.some((k) => k.id === kbId);
+      const kb: KnowledgeBase = {
+        id: kbId,
+        name,
+        description,
+        documents,
+        updatedAt: new Date().toISOString(),
+      };
       return {
         ...current,
         knowledgeBases: exists
-          ? rest.map((k) => (k.name === name ? kb : k))
+          ? rest.map((k) => (k.id === kbId ? kb : k))
           : [...rest, kb],
       };
     });
@@ -214,10 +286,10 @@ export function KnowledgeBaseTab({
     );
   };
 
-  const deleteKb = async (name: string) => {
+  const deleteKb = async (id: string) => {
     try {
       if (backendOnline) {
-        await deleteKnowledgeBase(name);
+        await deleteKnowledgeBase(id);
       }
     } catch (error) {
       toast.error(
@@ -229,7 +301,7 @@ export function KnowledgeBaseTab({
     }
     setSettings((current) => ({
       ...current,
-      knowledgeBases: current.knowledgeBases.filter((k) => k.name !== name),
+      knowledgeBases: current.knowledgeBases.filter((kb) => kb.id !== id),
     }));
     toast.success(
       backendOnline
@@ -239,7 +311,7 @@ export function KnowledgeBaseTab({
   };
 
   // "Add files" on an existing KB card — uploads immediately.
-  const addFiles = async (name: string, files: File[]) => {
+  const addFiles = async (id: string, files: File[]) => {
     if (files.length === 0) {
       return;
     }
@@ -250,21 +322,25 @@ export function KnowledgeBaseTab({
       );
       return;
     }
-    setUploadingKb(name);
+    setUploadingKb(id);
     try {
       if (backendOnline) {
-        await uploadKnowledgeBaseFiles(name, files);
+        await uploadWithResults(id, files);
+        const documents = await loadDocuments(id);
+        applyKbUpdate(id, (kb) => ({
+          ...kb,
+          documents,
+          updatedAt: new Date().toISOString(),
+        }));
+        toast.success("Files uploaded");
+      } else {
+        applyKbUpdate(id, (kb) => ({
+          ...kb,
+          documents: [...kb.documents, ...files.map(toLocalDocument)],
+          updatedAt: new Date().toISOString(),
+        }));
+        toast.success("Files added locally (backend offline)");
       }
-      applyKbUpdate(name, (kb) => ({
-        ...kb,
-        files: [...kb.files, ...files.map(toFileMeta)],
-        updatedAt: new Date().toISOString(),
-      }));
-      toast.success(
-        backendOnline
-          ? "Files uploaded"
-          : "Files added locally (backend offline)",
-      );
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "Failed to upload files",
@@ -274,38 +350,64 @@ export function KnowledgeBaseTab({
     }
   };
 
-  const removeFile = async (kbName: string, fileName: string) => {
+  const removeDocument = async (kbId: string, docId: string) => {
     try {
       if (backendOnline) {
-        await deleteKnowledgeBaseFile(kbName, fileName);
+        await deleteKnowledgeBaseFile(kbId, docId);
       }
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Failed to delete file",
+        error instanceof Error ? error.message : "Failed to delete document",
       );
       return;
     }
-    applyKbUpdate(kbName, (kb) => ({
+    applyKbUpdate(kbId, (kb) => ({
       ...kb,
-      files: kb.files.filter((file) => file.name !== fileName),
+      documents: kb.documents.filter((doc) => doc.id !== docId),
       updatedAt: new Date().toISOString(),
     }));
     toast.success(
-      backendOnline ? "File deleted" : "File deleted locally (backend offline)",
+      backendOnline
+        ? "Document deleted"
+        : "Document deleted locally (backend offline)",
     );
+  };
+
+  // Re-parse + re-embed every document (e.g. after an embedding-model change
+  // or to retry failed ingests).
+  const reindex = async (kb: KnowledgeBase) => {
+    if (!backendOnline) {
+      toast.error("Reindex needs the backend.");
+      return;
+    }
+    setReindexingKb(kb.id);
+    try {
+      await reindexKnowledgeBase(kb.id);
+      const documents = await loadDocuments(kb.id);
+      applyKbUpdate(kb.id, (current) => ({
+        ...current,
+        documents,
+        updatedAt: new Date().toISOString(),
+      }));
+      toast.success("Knowledge base reindexed");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Reindex failed");
+    } finally {
+      setReindexingKb(null);
+    }
   };
 
   const isEditingExisting =
     editing !== null &&
-    settings.knowledgeBases.some((k) => k.name === editing.name);
+    settings.knowledgeBases.some((k) => k.id === editing.id);
 
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <p className="text-[13px] text-muted-foreground">
-          Documents the agent can consult (RAG). Files are uploaded to the
-          backend and referenced on the next run; the client never stores file
-          content.
+          Documents the agent can consult (RAG), stored per user in the backend.
+          Files are parsed, chunked, and embedded on upload; the client never
+          stores file content.
         </p>
         <Button size="sm" variant="secondary" onClick={openNew}>
           <PlusIcon data-icon="inline-start" />
@@ -321,23 +423,36 @@ export function KnowledgeBaseTab({
       )}
 
       {settings.knowledgeBases.map((kb) => (
-        <Card key={kb.name} className="flex flex-col gap-3">
+        <Card key={kb.id} className="flex flex-col gap-3">
           <div className="flex items-start justify-between gap-4">
             <div className="flex min-w-0 flex-col gap-1">
               <div className="flex flex-wrap items-center gap-2">
                 <DatabaseIcon className="size-4 shrink-0 text-muted-foreground" />
                 <span className="text-sm font-medium">{kb.name}</span>
                 <Badge variant="outline">knowledge base</Badge>
-                {kb.files.length > 0 && (
+                {kb.documents.length > 0 && (
                   <>
                     <Badge variant="outline" className="font-mono text-[11px]">
-                      {kb.files.length} file{kb.files.length > 1 ? "s" : ""}
+                      {kb.documents.length} doc
+                      {kb.documents.length > 1 ? "s" : ""}
                     </Badge>
                     <Badge variant="outline" className="font-mono text-[11px]">
                       {formatBytes(
-                        kb.files.reduce((sum, file) => sum + file.size, 0),
+                        kb.documents.reduce(
+                          (sum, doc) => sum + doc.sizeBytes,
+                          0,
+                        ),
                       )}
                     </Badge>
+                    {kb.documents.some((doc) => doc.status === "failed") && (
+                      <Badge variant="destructive">
+                        {
+                          kb.documents.filter((doc) => doc.status === "failed")
+                            .length
+                        }{" "}
+                        failed
+                      </Badge>
+                    )}
                   </>
                 )}
               </div>
@@ -348,6 +463,19 @@ export function KnowledgeBaseTab({
               )}
             </div>
             <div className="flex shrink-0 gap-1">
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={reindexingKb === kb.id}
+                onClick={() => reindex(kb)}
+              >
+                {reindexingKb === kb.id ? (
+                  <Spinner data-icon="inline-start" />
+                ) : (
+                  <RefreshCcwIcon data-icon="inline-start" />
+                )}
+                Reindex
+              </Button>
               <Button size="sm" variant="ghost" onClick={() => openEdit(kb)}>
                 Edit
               </Button>
@@ -355,33 +483,63 @@ export function KnowledgeBaseTab({
                 size="icon"
                 variant="ghost"
                 aria-label={`Delete ${kb.name}`}
-                onClick={() => deleteKb(kb.name)}
+                onClick={() => deleteKb(kb.id)}
               >
                 <TrashIcon data-icon="inline-start" />
               </Button>
             </div>
           </div>
 
-          {kb.files.length > 0 && (
+          {kb.documents.length > 0 && (
             <div className="flex flex-col gap-1.5">
-              {kb.files.map((file) => (
+              {kb.documents.map((doc) => (
                 <div
-                  key={file.name}
+                  key={doc.id}
                   className="flex items-center gap-2 rounded-lg border border-border/60 px-2.5 py-1.5"
                 >
                   <FileIcon className="size-3.5 shrink-0 text-muted-foreground" />
-                  <span className="min-w-0 flex-1 truncate font-mono text-[12px]">
-                    {file.name}
+                  <span
+                    className="min-w-0 flex-1 truncate font-mono text-[12px]"
+                    title={doc.path}
+                  >
+                    {doc.path}
                   </span>
                   <span className="shrink-0 text-[11px] text-muted-foreground">
-                    {formatBytes(file.size)}
+                    {formatBytes(doc.sizeBytes)}
                   </span>
+                  {doc.status === "ready" && doc.chunkCount > 0 && (
+                    <Badge
+                      variant="outline"
+                      className="font-mono text-[11px]"
+                      title={`${doc.chunkCount} chunks indexed`}
+                    >
+                      {doc.chunkCount} chunk{doc.chunkCount > 1 ? "s" : ""}
+                    </Badge>
+                  )}
+                  <DocumentStatusBadge doc={doc} />
+                  {backendOnline && (
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="size-7"
+                      aria-label={`Open ${doc.path}`}
+                      render={
+                        <a
+                          href={knowledgeBaseDocumentUrl(kb.id, doc.id)}
+                          target="_blank"
+                          rel="noreferrer"
+                        />
+                      }
+                    >
+                      <DownloadIcon data-icon="inline-start" />
+                    </Button>
+                  )}
                   <Button
                     size="icon"
                     variant="ghost"
                     className="size-7"
-                    aria-label={`Delete ${file.name}`}
-                    onClick={() => removeFile(kb.name, file.name)}
+                    aria-label={`Delete ${doc.path}`}
+                    onClick={() => removeDocument(kb.id, doc.id)}
                   >
                     <XIcon data-icon="inline-start" />
                   </Button>
@@ -394,29 +552,29 @@ export function KnowledgeBaseTab({
             <Button
               size="sm"
               variant="outline"
-              disabled={uploadingKb === kb.name}
+              disabled={uploadingKb === kb.id}
               onClick={() =>
-                document.getElementById(`kb-file-${kb.name}`)?.click()
+                document.getElementById(`kb-file-${kb.id}`)?.click()
               }
             >
-              {uploadingKb === kb.name ? (
+              {uploadingKb === kb.id ? (
                 <Spinner data-icon="inline-start" />
               ) : (
                 <FileUpIcon data-icon="inline-start" />
               )}
-              {uploadingKb === kb.name ? "Uploading…" : "Add files"}
+              {uploadingKb === kb.id ? "Uploading…" : "Add files"}
             </Button>
             <input
-              id={`kb-file-${kb.name}`}
+              id={`kb-file-${kb.id}`}
               type="file"
               multiple
               className="hidden"
               onChange={(e) => {
-                addFiles(kb.name, Array.from(e.target.files ?? []));
+                addFiles(kb.id, Array.from(e.target.files ?? []));
                 e.target.value = "";
               }}
             />
-            {uploadingKb === kb.name && (
+            {uploadingKb === kb.id && (
               <span className="text-[12px] text-muted-foreground">
                 Uploading to backend…
               </span>
@@ -449,12 +607,12 @@ export function KnowledgeBaseTab({
                   setNameError(null);
                   setDraft((d) => (d ? { ...d, name: e.target.value } : d));
                 }}
-                placeholder="e.g. company-policies"
+                placeholder="e.g. Company Policies"
                 aria-invalid={nameError ? true : undefined}
               />
               <FieldDescription>
-                The backend key the agent references: lowercase letters,
-                numbers, and hyphens.
+                A display name the agent can reference: letters, numbers,
+                spaces, dots, dashes, and underscores (max 64 characters).
               </FieldDescription>
               {nameError && <FieldError>{nameError}</FieldError>}
             </Field>
@@ -514,7 +672,8 @@ export function KnowledgeBaseTab({
                   </span>
                 </p>
                 <p className="text-[12px] text-muted-foreground">
-                  PDF, DOCX, TXT, MD… up to {formatBytes(MAX_FILE_SIZE)} each
+                  PDF, DOCX, TXT, MD, code… up to {formatBytes(MAX_FILE_SIZE)}{" "}
+                  each
                 </p>
               </button>
               <input
@@ -522,6 +681,35 @@ export function KnowledgeBaseTab({
                 type="file"
                 multiple
                 className="hidden"
+                onChange={(e) => {
+                  addPendingFiles(e.target.files);
+                  e.target.value = "";
+                }}
+              />
+              <div className="flex items-center gap-3">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="self-start"
+                  onClick={() =>
+                    document.getElementById("kb-dialog-folder-input")?.click()
+                  }
+                >
+                  <FolderUpIcon data-icon="inline-start" />
+                  Upload a folder
+                </Button>
+                <span className="text-[12px] text-muted-foreground">
+                  Folder structure is preserved (subfolder/doc.md).
+                </span>
+              </div>
+              <input
+                id="kb-dialog-folder-input"
+                type="file"
+                multiple
+                className="hidden"
+                {...({
+                  webkitdirectory: "",
+                } as React.InputHTMLAttributes<HTMLInputElement>)}
                 onChange={(e) => {
                   addPendingFiles(e.target.files);
                   e.target.value = "";
@@ -535,8 +723,11 @@ export function KnowledgeBaseTab({
                       className="flex items-center gap-2 rounded-lg border border-border/60 px-2.5 py-1.5"
                     >
                       <FileIcon className="size-3.5 shrink-0 text-muted-foreground" />
-                      <span className="min-w-0 flex-1 truncate font-mono text-[12px]">
-                        {file.name}
+                      <span
+                        className="min-w-0 flex-1 truncate font-mono text-[12px]"
+                        title={file.webkitRelativePath || file.name}
+                      >
+                        {file.webkitRelativePath || file.name}
                       </span>
                       <span className="shrink-0 text-[11px] text-muted-foreground">
                         {formatBytes(file.size)}
@@ -561,7 +752,7 @@ export function KnowledgeBaseTab({
               <FieldDescription>
                 {isEditingExisting
                   ? "Add more documents — already stored files stay untouched."
-                  : "Uploaded to the backend when you save."}
+                  : "Uploaded to the backend when you save; each file is ingested and reported individually."}
               </FieldDescription>
               {fileError && <FieldError>{fileError}</FieldError>}
             </Field>
