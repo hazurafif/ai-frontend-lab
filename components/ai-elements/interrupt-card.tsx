@@ -66,18 +66,15 @@ function requestName(request: ActionRequest): string {
   return request.name ?? request.action ?? "tool";
 }
 
-/** Card title derived from the tool(s) awaiting approval: the tool name is
- * emphasized in italic mono ("*execute* approval", "*write_file* approval",
- * …); fallback: "Approval required" / "N tools approval". */
+/** Card title derived from the tool(s) awaiting approval: "execute
+ *approval*", "write_file *approval*", … (fallback: "Approval required"). */
 function ApprovalTitle({ actionRequests }: { actionRequests: ActionRequest[] }) {
   const names = Array.from(new Set(actionRequests.map(requestName)));
   if (names.length === 1 && names[0] && names[0] !== "tool") {
     return (
       <>
-        <span className="font-mono italic text-muted-foreground">
-          {names[0]}
-        </span>{" "}
-        approval
+        {names[0]}{" "}
+        <span className="italic">approval</span>
       </>
     );
   }
