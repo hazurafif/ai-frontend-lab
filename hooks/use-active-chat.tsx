@@ -2,7 +2,6 @@
 
 import type { UseChatHelpers } from "@ai-sdk/react";
 import { useChat } from "@ai-sdk/react";
-import { DefaultChatTransport } from "ai";
 import { usePathname } from "next/navigation";
 import {
   createContext,
@@ -17,6 +16,7 @@ import {
   useState,
 } from "react";
 import { toast } from "@/components/chat/toast";
+import { UploadChatTransport } from "@/hooks/chat-transport";
 import { useAuth } from "@/hooks/use-auth";
 import { authHeaders } from "@/lib/auth";
 import {
@@ -264,7 +264,7 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
           });
         }
       },
-      transport: new DefaultChatTransport({
+      transport: new UploadChatTransport({
         api: `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/api/chat`,
         fetch: fetchWithErrorHandlers,
         prepareSendMessagesRequest(request) {

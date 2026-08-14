@@ -140,6 +140,8 @@ export type ServerMessage = {
   tool_calls?: { id?: string; name?: string; args?: unknown }[];
   tool_call_id?: string;
   name?: string;
+  // OpenAI-compatible models store reasoning under additional_kwargs.
+  additional_kwargs?: Record<string, unknown>;
 };
 
 function contentToText(content: unknown): string {
@@ -164,6 +166,39 @@ function contentToText(content: unknown): string {
       })
       .filter(Boolean)
       .join("\n");
+  }
+  return "";
+}
+
+/** Reasoning text persisted with an AI message (thinking/reasoning blocks). */
+function reasoningFromMessage(msg: ServerMessage): string {
+  // OpenAI-compatible: additional_kwargs.reasoning_content (string or parts).
+  const kwargs = msg.additional_kwargs;
+  const kwText = kwargs?.reasoning_content;
+  if (typeof kwText === "string" && kwText.trim()) {
+    return kwText;
+  }
+  if (Array.isArray(kwText)) {
+    const joined = kwText
+      .filter((part): part is string => typeof part === "string")
+      .join("");
+    if (joined.trim()) {
+      return joined;
+    }
+  }
+  // Content blocks shaped {type: "reasoning" | "thinking", text}.
+  if (Array.isArray(msg.content)) {
+    return msg.content
+      .map((block) => {
+        if (!block || typeof block !== "object") {
+          return "";
+        }
+        const b = block as { reasoning?: unknown; thinking?: unknown };
+        const text = b.reasoning ?? b.thinking;
+        return typeof text === "string" ? text : "";
+      })
+      .filter(Boolean)
+      .join("\n\n");
   }
   return "";
 }
@@ -194,6 +229,10 @@ export function serverMessagesToChatMessages(
       });
     } else if (msg.type === "ai") {
       const parts: ChatMessage["parts"] = [];
+      const reasoning = reasoningFromMessage(msg);
+      if (reasoning) {
+        parts.push({ type: "reasoning", text: reasoning });
+      }
       const text = contentToText(msg.content);
       if (text) {
         parts.push({ type: "text", text });

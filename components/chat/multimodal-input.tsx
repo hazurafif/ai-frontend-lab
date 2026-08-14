@@ -6,7 +6,8 @@ import {
   BrainIcon,
   CheckIcon,
   ChevronDownIcon,
-  PlusIcon,
+  FileIcon,
+  PaperclipIcon,
   SquareIcon,
   XIcon,
 } from "lucide-react";
@@ -34,7 +35,11 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { useAvailableModels } from "@/hooks/use-available-models";
 import { chatModelName, chatModels } from "@/lib/models";
-import { THINKING_EFFORTS, type ThinkingEffort } from "@/lib/settings";
+import {
+  fetchBackendHealth,
+  THINKING_EFFORTS,
+  type ThinkingEffort,
+} from "@/lib/settings";
 import { fetchThreadUsage, type ThreadUsage } from "@/lib/threads";
 import type { ChatMessage } from "@/lib/types";
 import { SparklesIcon } from "./icons";
@@ -122,8 +127,14 @@ export function MultimodalInput({
   thinkingEffort,
 }: MultimodalInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [modelSelectorOpen, setModelSelectorOpen] = useState(false);
   const [inputFocused, setInputFocused] = useState(false);
+  const [attachments, setAttachments] = useState<File[]>([]);
+  // Whether the backend can execute shell commands (GET /health
+  // execute.enabled, EXECUTE_ENABLED) — required for the agent to reach
+  // uploaded files. null = unknown (still loading / offline → allow).
+  const [executeEnabled, setExecuteEnabled] = useState<boolean | null>(null);
   // Context window + token usage from GET /threads/{id}/usage (backend
   // ThreadUsageOut). Refetches when the thread changes or a run settles;
   // hidden while a run is in progress, and for new chats / guests (no
@@ -152,6 +163,28 @@ export function MultimodalInput({
   // Mount-gated platform check (hydration rule): server + first client
   // render show the macOS glyph, then flip to the Ctrl label on other OSes.
   const [isMac, setIsMac] = useState(true);
+
+  // Backend execute capability for the upload button (EXECUTE_ENABLED).
+  useEffect(() => {
+    let cancelled = false;
+    fetchBackendHealth()
+      .then((health) => {
+        if (!cancelled) {
+          setExecuteEnabled(health?.execute?.enabled ?? null);
+        }
+      })
+      .catch(() => {
+        // offline — leave unknown (uploads stay allowed)
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Drop picked files when switching chats so attachments never leak.
+  useEffect(() => {
+    setAttachments([]);
+  }, [chatId]);
 
   // Global ⌘K / Ctrl+K — focus the message input from anywhere in the app.
   useEffect(() => {
@@ -210,15 +243,48 @@ export function MultimodalInput({
     [models, selectedModelId],
   );
 
+  const handleFiles = (files: FileList | null) => {
+    if (!files) {
+      return;
+    }
+    setAttachments((current) => [...current, ...Array.from(files)]);
+    // Allow re-picking the same file after removing it.
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
   const submitForm = (event: FormEvent) => {
     event.preventDefault();
     const text = input.trim();
-    if (!text || isLoading) {
+    if ((!text && attachments.length === 0) || isLoading) {
       return;
     }
     setInput("");
-    sendMessage({ parts: [{ text, type: "text" }], role: "user" });
+    const files = attachments;
+    setAttachments([]);
+    sendMessage({
+      parts: [
+        ...(text ? [{ text, type: "text" } as const] : []),
+        ...files.map((file) => ({
+          file,
+          mediaType: file.type || "application/octet-stream",
+          type: "file" as const,
+          url: URL.createObjectURL(file),
+        })),
+      ],
+      role: "user",
+    });
     textareaRef.current?.focus();
+  };
+
+  const uploadDisabled = executeEnabled === false;
+
+  const handlePickFiles = () => {
+    if (uploadDisabled) {
+      return;
+    }
+    fileInputRef.current?.click();
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -271,18 +337,57 @@ export function MultimodalInput({
           )}
         </div>
 
+        {attachments.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {attachments.map((file, index) => (
+              <div
+                className="flex max-w-56 items-center gap-1.5 rounded-lg border border-border/60 bg-muted/40 py-1 pr-1 pl-2 text-[12px] text-muted-foreground"
+                key={`${file.name}-${index}`}
+                title={`${file.name} (${(file.size / 1024).toFixed(0)} KB)`}
+              >
+                <FileIcon className="size-3.5 shrink-0" />
+                <span className="truncate">{file.name}</span>
+                <button
+                  aria-label={`Remove ${file.name}`}
+                  className="rounded p-0.5 text-muted-foreground/60 transition-colors hover:text-destructive"
+                  onClick={() =>
+                    setAttachments((current) =>
+                      current.filter((_, i) => i !== index),
+                    )
+                  }
+                  type="button"
+                >
+                  <XIcon className="size-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
         <div className="flex items-center gap-1.5">
           <div className="flex min-w-0 items-center gap-1.5">
+            <input
+              className="hidden"
+              multiple
+              onChange={(event) => handleFiles(event.target.files)}
+              ref={fileInputRef}
+              type="file"
+            />
             <Button
               aria-label="Attach file"
               className="text-muted-foreground/70"
-              disabled
+              disabled={uploadDisabled}
+              onClick={handlePickFiles}
               size="sm"
-              title="File upload coming soon"
+              title={
+                uploadDisabled
+                  ? "File upload needs the execute tool (EXECUTE_ENABLED=true on the backend)"
+                  : "Attach files for the agent to inspect"
+              }
               type="button"
               variant="ghost"
             >
-              <PlusIcon className="size-4" />
+              <PaperclipIcon className="size-4" />
             </Button>
 
             <ModelSelector

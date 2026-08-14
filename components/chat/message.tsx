@@ -1,8 +1,21 @@
 "use client";
 
 import type { UseChatHelpers } from "@ai-sdk/react";
-import { CopyIcon, RefreshCwIcon } from "lucide-react";
+import {
+  BrainIcon,
+  ChevronDownIcon,
+  CopyIcon,
+  FileIcon,
+  Loader2Icon,
+  RefreshCwIcon,
+} from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
+import { Badge } from "@/components/ui/badge";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { extractPrefabPayload } from "@/lib/prefab";
 import type { ChatMessage } from "@/lib/types";
 import { cn, getTextFromMessage, sanitizeText } from "@/lib/utils";
@@ -33,37 +46,50 @@ function ThinkingText() {
   );
 }
 
-function ReasoningBlock({ text }: { text: string }) {
+/**
+ * Reasoning (thinking) content, rendered like a tool call card: collapsed
+ * by default, auto-opened while the model is still deliberating so the
+ * reasoning streams in live.
+ */
+function ReasoningBlock({
+  isStreaming,
+  text,
+}: {
+  isStreaming?: boolean;
+  text: string;
+}) {
   const [open, setOpen] = useState(false);
 
   return (
-    <div className="flex flex-col">
-      <button
-        className="flex w-fit items-center gap-1.5 text-[11px] text-muted-foreground/60 transition-colors hover:text-muted-foreground"
-        onClick={() => setOpen((current) => !current)}
-        type="button"
-      >
-        <svg
-          className={cn("size-3 transition-transform", open && "rotate-90")}
-          fill="none"
-          viewBox="0 0 24 24"
-        >
-          <path
-            d="m9 18 6-6-6-6"
-            stroke="currentColor"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth="2"
-          />
-        </svg>
-        <span>{open ? "Hide reasoning" : "Reasoning"}</span>
-      </button>
-      {open && (
-        <div className="mt-1 border-l-2 border-border/60 pl-3 text-[13px] leading-[1.65] whitespace-pre-wrap text-muted-foreground/70">
+    <Collapsible
+      className="w-full max-w-[min(560px,100%)] overflow-hidden rounded-xl border border-border/60 bg-card/50"
+      onOpenChange={setOpen}
+      open={open || isStreaming}
+    >
+      <CollapsibleTrigger className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-muted/40">
+        <BrainIcon className="size-3.5 shrink-0 text-muted-foreground" />
+        <span className="text-[12px] font-medium text-foreground">
+          Thinking
+        </span>
+        {isStreaming && (
+          <Badge className="ml-auto" variant="secondary">
+            <Loader2Icon className="animate-spin" />
+            Thinking…
+          </Badge>
+        )}
+        <ChevronDownIcon
+          className={cn(
+            "size-3.5 shrink-0 text-muted-foreground transition-transform",
+            (open || isStreaming) && "rotate-180",
+          )}
+        />
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="border-t border-border/60 px-3 py-2.5 text-[13px] leading-[1.65] whitespace-pre-wrap text-muted-foreground/80">
           {text}
         </div>
-      )}
-    </div>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 
@@ -132,7 +158,13 @@ function PreviewMessage({
     if (type === "reasoning") {
       if (!mergedReasoning.rendered && mergedReasoning.text) {
         mergedReasoning.rendered = true;
-        return <ReasoningBlock key={key} text={mergedReasoning.text} />;
+        return (
+          <ReasoningBlock
+            isStreaming={mergedReasoning.isStreaming}
+            key={key}
+            text={mergedReasoning.text}
+          />
+        );
       }
       return null;
     }
@@ -153,6 +185,19 @@ function PreviewMessage({
     }
 
     if (type === "file") {
+      // Locally attached file (picked in the composer): show a chip — the
+      // backend only receives the bytes, not a URL.
+      if ("file" in part && part.file instanceof File) {
+        return (
+          <div
+            className="flex w-fit max-w-56 items-center gap-1.5 rounded-lg border border-border/60 bg-muted/40 py-1 pr-2 pl-2 text-[12px] text-muted-foreground"
+            key={key}
+          >
+            <FileIcon className="size-3.5 shrink-0" />
+            <span className="truncate">{part.file.name}</span>
+          </div>
+        );
+      }
       // Attachments sent by the backend (e.g. generated images).
       const isImage = part.mediaType?.startsWith("image/");
       if (isImage) {
