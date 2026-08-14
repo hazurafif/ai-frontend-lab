@@ -79,7 +79,11 @@ function ReasoningBlock({
         )}
         <ChevronDownIcon
           className={cn(
-            "ml-auto size-3.5 shrink-0 text-muted-foreground transition-transform",
+            "size-3.5 shrink-0 text-muted-foreground transition-transform",
+            // Only one ml-auto at a time — two auto margins would split the
+            // free space and park the spinner mid-card (the badge owns it
+            // while streaming; the chevron takes over when done).
+            !isStreaming && "ml-auto",
             (open || isStreaming) && "rotate-180",
           )}
         />
