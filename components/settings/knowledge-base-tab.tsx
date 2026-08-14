@@ -609,8 +609,8 @@ export function KnowledgeBaseTab({
                 aria-invalid={nameError ? true : undefined}
               />
               <FieldDescription>
-                A display name the agent can reference: letters, numbers,
-                spaces, dots, dashes, and underscores (max 64 characters).
+                Letters, numbers, spaces, dots, dashes, underscores (max 64
+                chars).
               </FieldDescription>
               {nameError && <FieldError>{nameError}</FieldError>}
             </Field>
@@ -624,7 +624,7 @@ export function KnowledgeBaseTab({
                     d ? { ...d, description: e.target.value } : d,
                   )
                 }
-                placeholder="What documents does this knowledge base contain?"
+                placeholder="What&apos;s in this knowledge base?"
               />
             </Field>
             <Field data-invalid={fileError ? true : undefined}>
@@ -697,7 +697,7 @@ export function KnowledgeBaseTab({
                   Upload a folder
                 </Button>
                 <span className="text-[12px] text-muted-foreground">
-                  Folder structure is preserved (subfolder/doc.md).
+                  Subfolders are preserved.
                 </span>
               </div>
               <input
@@ -749,8 +749,8 @@ export function KnowledgeBaseTab({
               )}
               <FieldDescription>
                 {isEditingExisting
-                  ? "Add more documents — already stored files stay untouched."
-                  : "Uploaded to the backend when you save; each file is ingested and reported individually."}
+                  ? "Add documents; already stored files stay untouched."
+                  : "Uploaded and ingested when you save."}
               </FieldDescription>
               {fileError && <FieldError>{fileError}</FieldError>}
             </Field>
