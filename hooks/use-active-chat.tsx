@@ -23,10 +23,11 @@ import {
   CHAT_STORAGE_PREFIX,
   HISTORY_CHANGED_EVENT,
   HISTORY_STORAGE_KEY,
+  SETTINGS_CHANGED_EVENT,
 } from "@/lib/constants";
 import { ChatbotError } from "@/lib/errors";
 import { DEFAULT_CHAT_MODEL } from "@/lib/models";
-import { loadSettings } from "@/lib/settings";
+import { loadSettings, saveSettings } from "@/lib/settings";
 import {
   cancelThread,
   deleteThread,
@@ -175,11 +176,33 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
 
   const chatId = chatIdFromUrl ?? newChatIdRef.current;
 
-  const [currentModelId, setCurrentModelId] = useState(DEFAULT_CHAT_MODEL);
+  const [currentModelId, setCurrentModelIdState] = useState(DEFAULT_CHAT_MODEL);
   const currentModelIdRef = useRef(currentModelId);
   useEffect(() => {
     currentModelIdRef.current = currentModelId;
   }, [currentModelId]);
+
+  // The chat input and /settings share one model setting. Initialize from
+  // the saved settings (localStorage) on mount and follow any changes made
+  // elsewhere (e.g. the Model tab in /settings) via the settings-changed
+  // event. Mount-gated so the server render matches the client's first
+  // render.
+  useEffect(() => {
+    setCurrentModelIdState(loadSettings().model);
+    const handleSettingsChanged = () => {
+      setCurrentModelIdState(loadSettings().model);
+    };
+    window.addEventListener(SETTINGS_CHANGED_EVENT, handleSettingsChanged);
+    return () => {
+      window.removeEventListener(SETTINGS_CHANGED_EVENT, handleSettingsChanged);
+    };
+  }, []);
+
+  // Persist picks made in the chat input so /settings reflects them too.
+  const setCurrentModelId = useCallback((id: string) => {
+    setCurrentModelIdState(id);
+    saveSettings({ ...loadSettings(), model: id });
+  }, []);
 
   const [input, setInput] = useState("");
 

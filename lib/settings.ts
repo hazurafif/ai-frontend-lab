@@ -8,6 +8,7 @@
 // until the backend /settings endpoints exist.
 
 import { fetchWithAuth } from "@/lib/auth";
+import { SETTINGS_CHANGED_EVENT } from "@/lib/constants";
 import { generateUUID } from "@/lib/utils";
 
 export type SkillFile = {
@@ -247,6 +248,14 @@ function migrateTool(tool: Partial<ToolConfig> & { id?: string }): ToolConfig {
 export function saveSettings(settings: SettingsState) {
   try {
     window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+    // Notify live consumers (e.g. the chat input's model selector) so the
+    // setting takes effect immediately, even without a page reload. Deferred
+    // a tick: settings pages may call this from a setState updater, which
+    // runs during render — a synchronous dispatch would make subscribers
+    // setState mid-render.
+    window.setTimeout(() => {
+      window.dispatchEvent(new Event(SETTINGS_CHANGED_EVENT));
+    }, 0);
   } catch {
     // storage unavailable — ignore
   }

@@ -1,9 +1,9 @@
 "use client";
 
 import type { UseChatHelpers } from "@ai-sdk/react";
-import { ArrowUpIcon, SquareIcon, XIcon } from "lucide-react";
+import { ArrowUpIcon, ChevronDownIcon, SquareIcon, XIcon } from "lucide-react";
 import type { FormEvent, KeyboardEvent } from "react";
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   ModelSelector,
   ModelSelectorContent,
@@ -16,7 +16,7 @@ import {
 } from "@/components/ai-elements/model-selector";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { chatModels } from "@/lib/models";
+import { chatModelName, chatModels } from "@/lib/models";
 import type { ChatMessage } from "@/lib/types";
 import { SparklesIcon } from "./icons";
 
@@ -49,7 +49,24 @@ export function MultimodalInput({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [modelSelectorOpen, setModelSelectorOpen] = useState(false);
 
-  const selectedModel = chatModels.find((m) => m.id === selectedModelId);
+  const selectedModelName = chatModelName(selectedModelId);
+
+  // The built-in list plus the current model when it isn't built in (e.g.
+  // the backend reports a DEEPAGENTS_MODEL the frontend doesn't know), so
+  // the selected model is always representable in the menu.
+  const models = useMemo(() => {
+    if (chatModels.some((m) => m.id === selectedModelId)) {
+      return chatModels;
+    }
+    return [
+      ...chatModels,
+      {
+        id: selectedModelId,
+        name: selectedModelId,
+        description: "Configured on the backend (not in the built-in list)",
+      },
+    ];
+  }, [selectedModelId]);
 
   const submitForm = (event: FormEvent) => {
     event.preventDefault();
@@ -112,12 +129,14 @@ export function MultimodalInput({
                 <Button
                   aria-label="Select model"
                   className="text-muted-foreground/70 hover:text-foreground"
-                  size="icon-sm"
-                  title={selectedModel?.name ?? selectedModelId}
+                  size="sm"
+                  title={selectedModelName}
                   type="button"
                   variant="ghost"
                 >
-                  <SparklesIcon size={14} />
+                  <SparklesIcon data-icon="inline-start" />
+                  <span className="max-w-36 truncate">{selectedModelName}</span>
+                  <ChevronDownIcon data-icon="inline-end" />
                 </Button>
               }
             />
@@ -126,7 +145,7 @@ export function MultimodalInput({
               <ModelSelectorList>
                 <ModelSelectorEmpty>No models found</ModelSelectorEmpty>
                 <ModelSelectorGroup>
-                  {chatModels.map((model) => (
+                  {models.map((model) => (
                     <ModelSelectorItem
                       key={model.id}
                       data-checked={selectedModelId === model.id || undefined}
