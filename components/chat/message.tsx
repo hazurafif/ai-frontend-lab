@@ -11,6 +11,16 @@ import {
   RotateCcwIcon,
 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import {
   Collapsible,
@@ -134,6 +144,10 @@ function PreviewMessage({
 }) {
   const isUser = message.role === "user";
   const isAssistant = message.role === "assistant";
+
+  // Rewind confirmation: the action drops this message and everything after
+  // it — not undoable, so confirm first.
+  const [rewindConfirm, setRewindConfirm] = useState(false);
 
   // Sent time for the user message footer. The backend doesn't emit per-
   // message timestamps, so metadata.createdAt is only present for locally
@@ -368,7 +382,7 @@ function PreviewMessage({
                 {onRewind && (
                   <MessageAction
                     label="Rewind"
-                    onClick={() => onRewind(message)}
+                    onClick={() => setRewindConfirm(true)}
                     tooltip="Rewind"
                   >
                     <RotateCcwIcon />
@@ -382,6 +396,29 @@ function PreviewMessage({
           </>
         )}
       </div>
+
+      <AlertDialog onOpenChange={setRewindConfirm} open={rewindConfirm}>
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Rewind to this message?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes this message and everything after it — it cannot be
+              undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setRewindConfirm(false);
+                onRewind?.(message);
+              }}
+            >
+              Rewind
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
