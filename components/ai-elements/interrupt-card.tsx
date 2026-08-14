@@ -4,7 +4,6 @@ import type { CustomContentUIPart } from "ai";
 import {
   CheckIcon,
   ChevronDownIcon,
-  LoaderCircleIcon,
   WrenchIcon,
   XIcon,
 } from "lucide-react";
@@ -77,11 +76,9 @@ export function InterruptCard({
   active: boolean;
 }) {
   const { resumeInterrupt } = useActiveChat();
-  // Local decision state: while the resumed run streams, the interrupted
-  // message (and this card) stays in the chat — show a resolving indicator,
-  // then a settled badge, instead of the buttons.
+  // Decision state: once Accept/Reject is clicked the card collapses into a
+  // settled (completed-tool-style) row — no intermediate spinner state.
   const [outcome, setOutcome] = useState<"approve" | "reject" | null>(null);
-  const [resolving, setResolving] = useState(false);
   // Settled card collapse (details behind the chevron, like a completed tool).
   const [open, setOpen] = useState(false);
 
@@ -95,24 +92,16 @@ export function InterruptCard({
 
   // Approve/reject every pending tool call: the backend requires one
   // decision per hanging tool call, so a single approve for a two-call
-  // interrupt would fail the resume.
-  const submitDecisions = async (
-    decision: "approve" | "reject",
-  ): Promise<void> => {
-    if (resolving || outcome !== null) {
+  // interrupt would fail the resume. The card collapses immediately; the
+  // provider streams the resumed run into a new message after it.
+  const submitDecisions = (decision: "approve" | "reject") => {
+    if (outcome !== null) {
       return;
     }
     setOutcome(decision);
-    setResolving(true);
-    try {
-      // The interrupted message is NOT truncated: the provider streams the
-      // resumed run into a new message after it, then this resolves.
-      await resumeInterrupt(message.id, {
-        decisions: actionRequests.map(() => ({ type: decision })),
-      });
-    } finally {
-      setResolving(false);
-    }
+    void resumeInterrupt(message.id, {
+      decisions: actionRequests.map(() => ({ type: decision })),
+    });
   };
 
   const handleAccept = () => submitDecisions("approve");
@@ -121,7 +110,7 @@ export function InterruptCard({
   // Settled (approved/rejected): collapse to a completed-tool-style row —
   // icon + title + status badge + chevron, collapsed by default; the
   // request details stay available behind the expander.
-  const settled = outcome !== null && !resolving;
+  const settled = outcome !== null;
 
   const requestRows = actionRequests.length > 0 ? (
     actionRequests.map((request, index) => {
@@ -208,7 +197,6 @@ export function InterruptCard({
           <div className="mt-1 flex items-center gap-2">
             <Button
               className="h-7 px-2.5 text-[12px]"
-              disabled={resolving}
               onClick={handleAccept}
               type="button"
             >
@@ -217,7 +205,6 @@ export function InterruptCard({
             </Button>
             <Button
               className="h-7 px-2.5 text-[12px]"
-              disabled={resolving}
               onClick={handleReject}
               type="button"
               variant="outline"
@@ -225,13 +212,6 @@ export function InterruptCard({
               <XIcon />
               Reject
             </Button>
-          </div>
-        )}
-
-        {resolving && (
-          <div className="mt-1 flex items-center gap-1.5 text-[12px] text-muted-foreground">
-            <LoaderCircleIcon className="size-3.5 animate-spin" />
-            {outcome === "approve" ? "Approving…" : "Rejecting…"}
           </div>
         )}
       </div>
