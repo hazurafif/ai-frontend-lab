@@ -2,9 +2,11 @@
 
 import {
   ChevronsUpDownIcon,
+  CircleCheckIcon,
   PlusIcon,
   RefreshCcwIcon,
   TrashIcon,
+  TriangleAlertIcon,
   XIcon,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -1158,7 +1160,7 @@ function ModelTab({
       if (res.ok && body.models?.length) {
         setTestResult({
           ok: true,
-          message: `Connected — ${body.models.length} models available`,
+          message: `${body.models.length} models available`,
         });
       } else {
         setTestResult({
@@ -1409,10 +1411,15 @@ function ModelTab({
             {testResult && (
               <span
                 className={cn(
-                  "text-[13px]",
-                  testResult.ok ? "text-green-600" : "text-destructive",
+                  "flex items-center gap-1.5 text-[13px]",
+                  testResult.ok ? "text-muted-foreground" : "text-destructive",
                 )}
               >
+                {testResult.ok ? (
+                  <CircleCheckIcon className="size-4 shrink-0" />
+                ) : (
+                  <TriangleAlertIcon className="size-4 shrink-0" />
+                )}
                 {testResult.message}
               </span>
             )}
