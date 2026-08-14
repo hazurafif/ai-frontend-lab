@@ -2,7 +2,8 @@
 
 import type { UseChatHelpers } from "@ai-sdk/react";
 import { CopyIcon, RefreshCwIcon } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { extractPrefabPayload } from "@/lib/prefab";
 import type { ChatMessage } from "@/lib/types";
 import { cn, getTextFromMessage, sanitizeText } from "@/lib/utils";
 import { InterruptCard } from "../ai-elements/interrupt-card";
@@ -12,6 +13,7 @@ import {
   MessageContent,
   MessageResponse,
 } from "../ai-elements/message";
+import { PrefabAppCard } from "../ai-elements/prefab-app";
 import { Shimmer } from "../ai-elements/shimmer";
 import { SubagentCard } from "../ai-elements/subagent-card";
 import { ToolCard, type ToolUIPart } from "../ai-elements/tool-card";
@@ -63,6 +65,19 @@ function ReasoningBlock({ text }: { text: string }) {
       )}
     </div>
   );
+}
+
+function ToolPart({ part }: { part: ToolUIPart }) {
+  // FastMCP Prefab apps (structuredContent envelopes) render as an inline
+  // app block in the message flow; everything else keeps the tool card.
+  const prefab = useMemo(
+    () => extractPrefabPayload(part.output),
+    [part.output],
+  );
+  if (prefab !== null) {
+    return <PrefabAppCard part={part} prefab={prefab} />;
+  }
+  return <ToolCard part={part} />;
 }
 
 function PreviewMessage({
@@ -162,8 +177,9 @@ function PreviewMessage({
     }
 
     if (type.startsWith("tool-")) {
-      // Tool call card: name, status badge, input/output (AI SDK tool parts).
-      return <ToolCard key={key} part={part as unknown as ToolUIPart} />;
+      // Tool call card: name, status badge, input/output (AI SDK tool
+      // parts) — or the inline Prefab app block when the tool returned one.
+      return <ToolPart key={key} part={part as unknown as ToolUIPart} />;
     }
 
     if (type === "custom") {

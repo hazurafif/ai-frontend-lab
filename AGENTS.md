@@ -117,12 +117,19 @@ lib/
   `PREFAB_RENDERER_VERSION` in sync with the servers' `prefab-ui` package)
   inside a sandboxed iframe speaking the MCP Apps postMessage protocol
   (`ui/initialize` → `ui/notifications/tool-result` → `size-changed`).
-  App-initiated `tools/call` (interactive apps, e.g. FastMCPApp backends)
-  is forwarded by the host through `app/api/mcp/[[...path]]` to the
-  backend's `POST /mcp/tools/call` proxy and the CallToolResult is handed
-  back to the renderer verbatim; unknown tools surface as `isError`.
-  Backend contract: `{name, arguments, server_hint?}` →
-  `{content, structuredContent, isError}` (404/502 on failures).
+  Prefab outputs render as an **inline app block** in the message flow
+  (`PrefabAppCard` + `ToolPart` routing in `components/chat/message.tsx`),
+  not inside the collapsible tool card — the MCP Apps extension's intended
+  presentation. App-initiated `tools/call` (interactive apps, e.g.
+  FastMCPApp backends) is forwarded by the host through
+  `app/api/mcp/[[...path]]` to the backend's `POST /mcp/tools/call` proxy
+  and the CallToolResult is handed back to the renderer verbatim; unknown
+  tools surface as `isError`. Backend contract: `{name, arguments,
+  server_hint?}` → `{content, structuredContent, isError}` (404/502 on
+  failures). Note: Next dev enables React StrictMode by default — the host's
+  AbortController is created inside the effect (per setup) so StrictMode's
+  setup→cleanup→setup can't abort it, and tool-result re-pushes compare
+  envelope CONTENT (JSON), not object reference (chat re-creates parts).
 - HITL interrupts arrive as `custom` parts with `kind: "app.interrupt"`
   (backend nests `threadId`/`interrupts` under `providerMetadata.app` — flat
   fields fail the strict `uiMessageChunkSchema` and kill the stream) →

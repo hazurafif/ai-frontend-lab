@@ -1,10 +1,12 @@
 "use client";
 
-import { TriangleAlertIcon } from "lucide-react";
+import { AppWindowIcon, TriangleAlertIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { Badge } from "@/components/ui/badge";
 import { fetchWithAuth } from "@/lib/auth";
 import { prefabRendererHtml, type PrefabPayload } from "@/lib/prefab";
 import { cn } from "@/lib/utils";
+import type { ToolUIPart } from "./tool-card";
 
 /** Host-side implementation of the MCP Apps extension (SEP-1865) postMessage
  * protocol, speaking to the official Prefab renderer:
@@ -255,16 +257,13 @@ export function PrefabApp({ payload }: { payload: PrefabPayload }) {
   }, []);
 
   return (
-    <div className="flex flex-col gap-1">
-      <span className="text-[11px] font-medium text-muted-foreground">
-        Output
-      </span>
+    <div className="flex flex-col">
       {status === "error" ? (
         <div className="flex items-start gap-1.5 rounded-lg border border-destructive/30 bg-destructive/5 p-2.5 text-[12px] text-destructive">
           <TriangleAlertIcon className="mt-0.5 size-3.5 shrink-0" />
           <span className="min-w-0 break-words">
             Couldn&apos;t load the Prefab renderer (CDN unreachable or renderer
-            failed to initialize). The raw tool output is shown above.
+            failed to initialize).
           </span>
         </div>
       ) : (
@@ -284,6 +283,38 @@ export function PrefabApp({ payload }: { payload: PrefabPayload }) {
           />
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Inline chat block for FastMCP Prefab apps. Rendered directly in the
+ * message flow (next to text, like a subagent card) instead of inside the
+ * collapsible tool-result disclosure — the MCP Apps extension's intended
+ * presentation: "the app lives inside the conversation".
+ */
+export function PrefabAppCard({
+  part,
+  prefab,
+}: {
+  part: ToolUIPart;
+  prefab: PrefabPayload;
+}) {
+  const toolName = part.type.replace(/^tool-/, "");
+  return (
+    <div className="w-full max-w-[min(560px,100%)] overflow-hidden rounded-xl border border-border/60 bg-card/50">
+      <div className="flex items-center gap-2 border-b border-border/60 px-3 py-2">
+        <AppWindowIcon className="size-3.5 shrink-0 text-muted-foreground" />
+        <span className="min-w-0 truncate font-mono text-[12px] font-medium text-foreground">
+          {toolName}
+        </span>
+        <Badge className="ml-auto" variant="outline">
+          app
+        </Badge>
+      </div>
+      <div className="p-2.5">
+        <PrefabApp payload={prefab} />
+      </div>
     </div>
   );
 }
