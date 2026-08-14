@@ -392,7 +392,7 @@ function PreviewMessage({
                     <PopoverContent
                       align="end"
                       className="w-60 p-3"
-                      side="top"
+                      side="bottom"
                       sideOffset={6}
                     >
                       <div className="flex flex-col gap-2.5">
