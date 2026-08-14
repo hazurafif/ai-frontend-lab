@@ -11,22 +11,18 @@ import {
   RotateCcwIcon,
 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { extractPrefabPayload } from "@/lib/prefab";
 import type { ChatMessage } from "@/lib/types";
 import { cn, getTextFromMessage, sanitizeText } from "@/lib/utils";
@@ -380,13 +376,54 @@ function PreviewMessage({
               )}
               <span className="flex items-center gap-1">
                 {onRewind && (
-                  <MessageAction
-                    label="Rewind"
-                    onClick={() => setRewindConfirm(true)}
-                    tooltip="Rewind"
-                  >
-                    <RotateCcwIcon />
-                  </MessageAction>
+                  <Popover onOpenChange={setRewindConfirm} open={rewindConfirm}>
+                    <PopoverTrigger
+                      render={
+                        <Button
+                          aria-label="Rewind"
+                          size="icon-sm"
+                          type="button"
+                          variant="ghost"
+                        >
+                          <RotateCcwIcon />
+                        </Button>
+                      }
+                    />
+                    <PopoverContent
+                      align="end"
+                      className="w-60 p-3"
+                      side="top"
+                      sideOffset={6}
+                    >
+                      <div className="flex flex-col gap-2.5">
+                        <p className="text-[12px] leading-relaxed text-muted-foreground">
+                          Remove this message and everything after it? This
+                          cannot be undone.
+                        </p>
+                        <div className="flex items-center justify-end gap-1.5">
+                          <Button
+                            onClick={() => setRewindConfirm(false)}
+                            size="sm"
+                            type="button"
+                            variant="ghost"
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            onClick={() => {
+                              setRewindConfirm(false);
+                              onRewind(message);
+                            }}
+                            size="sm"
+                            type="button"
+                            variant="secondary"
+                          >
+                            Rewind
+                          </Button>
+                        </div>
+                      </div>
+                    </PopoverContent>
+                  </Popover>
                 )}
                 <MessageAction label="Copy" onClick={handleCopy} tooltip="Copy">
                   <CopyIcon />
@@ -396,29 +433,6 @@ function PreviewMessage({
           </>
         )}
       </div>
-
-      <AlertDialog onOpenChange={setRewindConfirm} open={rewindConfirm}>
-        <AlertDialogContent size="sm">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Rewind to this message?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This removes this message and everything after it — it cannot be
-              undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                setRewindConfirm(false);
-                onRewind?.(message);
-              }}
-            >
-              Rewind
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }
