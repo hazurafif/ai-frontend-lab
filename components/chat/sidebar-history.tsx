@@ -122,7 +122,12 @@ const groupChatsByDate = (chats: ChatHistoryItem[]): GroupedChats => {
   );
 };
 
-export function SidebarHistory() {
+export function SidebarHistory({
+  searchQuery = "",
+}: {
+  /** Filters the list by chat title (from the sidebar search input). */
+  searchQuery?: string;
+}) {
   const { setOpenMobile } = useSidebar();
   const pathname = usePathname();
   const router = useRouter();
@@ -255,7 +260,13 @@ export function SidebarHistory() {
     setRenameTarget(null);
   }, [history, isAuthenticated, renameDraft, renameTarget]);
 
-  const groupedChats = groupChatsByDate(history);
+  // Filter by title when the sidebar search is active; the date groups are
+  // kept so matching chats still read as a timeline.
+  const query = searchQuery.trim().toLowerCase();
+  const visibleHistory = query
+    ? history.filter((chat) => chat.title.toLowerCase().includes(query))
+    : history;
+  const groupedChats = groupChatsByDate(visibleHistory);
 
   return (
     <>
@@ -264,9 +275,11 @@ export function SidebarHistory() {
           History
         </SidebarGroupLabel>
         <SidebarGroupContent>
-          {history.length === 0 ? (
+          {visibleHistory.length === 0 ? (
             <div className="flex w-full flex-row items-center justify-center gap-2 px-2 text-[13px] text-sidebar-foreground/60">
-              Your conversations will appear here once you start chatting!
+              {query
+                ? "No chats match your search."
+                : "Your conversations will appear here once you start chatting!"}
             </div>
           ) : (
             <SidebarMenu>

@@ -1,14 +1,17 @@
 "use client";
 
 import {
+  ChevronsUpDownIcon,
   LogOutIcon,
   MessageSquareIcon,
   MoonIcon,
   PanelLeftIcon,
   PenSquareIcon,
+  SearchIcon,
   SettingsIcon,
   SunIcon,
   TrashIcon,
+  XIcon,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -21,6 +24,13 @@ import {
   settingsTabsForRole,
   useSettingsTabs,
 } from "@/components/settings/settings-tabs-context";
+import { Button } from "@/components/ui/button";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
+} from "@/components/ui/input-group";
 import {
   Sidebar,
   SidebarContent,
@@ -37,6 +47,7 @@ import {
 } from "@/components/ui/sidebar";
 import { useActiveChat } from "@/hooks/use-active-chat";
 import { useAuth } from "@/hooks/use-auth";
+import type { AuthUser } from "@/lib/auth";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -47,6 +58,25 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "../ui/alert-dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "../ui/dropdown-menu";
+
+/** First letters of the display name (e.g. "Ada Lovelace" → "AL"). */
+function accountInitials(user: AuthUser): string {
+  const name = user.full_name?.trim() || user.username;
+  const parts = name.split(/\s+/).filter(Boolean);
+  const first = parts[0]?.[0] ?? "";
+  const last = parts.length > 1 ? (parts[1]?.[0] ?? "") : "";
+  return (first + last).toUpperCase();
+}
 
 export function AppSidebar() {
   const router = useRouter();
@@ -58,6 +88,8 @@ export function AppSidebar() {
   const { activeTab, setActiveTab } = useSettingsTabs();
   const [mounted, setMounted] = useState(false);
   const [showDeleteAllDialog, setShowDeleteAllDialog] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
 
   // On /settings the sidebar becomes the settings navigation instead of the
   // chat history — the settings page renders its content in the main area.
@@ -75,6 +107,13 @@ export function AppSidebar() {
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  // Closing the search modal (or opening a chat from it) clears the query
+  // so the sidebar history is never left filtered.
+  useEffect(() => {
+    setSearchOpen(false);
+    setSearchQuery("");
+  }, [pathname]);
 
   const closeMobile = useCallback(() => {
     setOpenMobile(false);
@@ -104,6 +143,11 @@ export function AppSidebar() {
     setTheme(resolvedTheme === "dark" ? "light" : "dark");
   }, [resolvedTheme, setTheme]);
 
+  const handleGoToSettings = useCallback(() => {
+    setOpenMobile(false);
+    router.push("/settings");
+  }, [router, setOpenMobile]);
+
   const handleLogout = useCallback(() => {
     logout();
     router.push("/login");
@@ -117,14 +161,14 @@ export function AppSidebar() {
             <SidebarMenuItem className="flex flex-row items-center justify-between">
               <div className="group/logo relative flex items-center justify-center">
                 <SidebarMenuButton
-                  className="size-8 !px-0 items-center justify-center group-data-[collapsible=icon]:group-hover/logo:opacity-0"
+                  className="size-8 !px-0 items-center justify-center group-data-[collapsible=icon]:invisible"
                   render={<Link href="/" onClick={closeMobile} />}
                   tooltip="Chatbot"
                 >
                   <MessageSquareIcon className="size-4 text-sidebar-foreground/50" />
                 </SidebarMenuButton>
                 <SidebarMenuButton
-                  className="pointer-events-none absolute inset-0 size-8 opacity-0 group-data-[collapsible=icon]:pointer-events-auto group-data-[collapsible=icon]:group-hover/logo:opacity-100"
+                  className="pointer-events-none absolute inset-0 size-8 opacity-0 group-data-[collapsible=icon]:pointer-events-auto group-data-[collapsible=icon]:opacity-100"
                   onClick={handleToggleSidebar}
                   tooltip={{
                     children: "Open sidebar",
@@ -132,10 +176,19 @@ export function AppSidebar() {
                     side: "right",
                   }}
                 >
-                  <PanelLeftIcon className="size-4" />
+                  <PanelLeftIcon className="size-4 text-sidebar-foreground/60" />
                 </SidebarMenuButton>
               </div>
-              <div className="group-data-[collapsible=icon]:hidden">
+              <div className="group-data-[collapsible=icon]:hidden flex items-center gap-0.5">
+                <Button
+                  aria-label="Search chats"
+                  className="text-sidebar-foreground/60 transition-colors duration-150 hover:text-sidebar-foreground"
+                  onClick={() => setSearchOpen(true)}
+                  size="icon-sm"
+                  variant="ghost"
+                >
+                  <SearchIcon className="size-4" />
+                </Button>
                 <SidebarTrigger className="text-sidebar-foreground/60 transition-colors duration-150 hover:text-sidebar-foreground" />
               </div>
             </SidebarMenuItem>
@@ -190,6 +243,18 @@ export function AppSidebar() {
                         <span className="font-medium">New chat</span>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
+                    {/* Collapsed (icon) mode: search icon below New chat —
+                        opens the search-chats modal. */}
+                    <SidebarMenuItem className="hidden group-data-[collapsible=icon]:block">
+                      <SidebarMenuButton
+                        className="h-8 rounded-lg text-sidebar-foreground/60 transition-colors duration-150 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+                        onClick={() => setSearchOpen(true)}
+                        tooltip="Search chats"
+                      >
+                        <SearchIcon className="size-4" />
+                        <span className="text-[13px]">Search</span>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
                     <SidebarMenuItem>
                       <SidebarMenuButton
                         className="rounded-lg text-sidebar-foreground/40 transition-colors duration-150 hover:bg-destructive/10 hover:text-destructive"
@@ -203,49 +268,163 @@ export function AppSidebar() {
                   </SidebarMenu>
                 </SidebarGroupContent>
               </SidebarGroup>
-              <SidebarHistory />
+              <SidebarHistory searchQuery={searchQuery} />
+
+              {/* Search-chats modal (opened from the collapsed sidebar icon):
+                  a focused search input over the same filtered history. */}
+              <Dialog
+                onOpenChange={(open) => {
+                  setSearchOpen(open);
+                  if (!open) {
+                    setSearchQuery("");
+                  }
+                }}
+                open={searchOpen}
+              >
+                <DialogContent className="max-w-lg">
+                  <DialogHeader>
+                    <DialogTitle>Search chats</DialogTitle>
+                  </DialogHeader>
+                  <InputGroup className="rounded-lg">
+                    <InputGroupAddon align="inline-start">
+                      <SearchIcon className="text-muted-foreground/40" />
+                    </InputGroupAddon>
+                    <InputGroupInput
+                      aria-label="Search chats"
+                      autoFocus
+                      className="text-[13px]"
+                      onChange={(event) => setSearchQuery(event.target.value)}
+                      placeholder="Search chats"
+                      value={searchQuery}
+                    />
+                    {searchQuery && (
+                      <InputGroupAddon align="inline-end">
+                        <InputGroupButton
+                          aria-label="Clear search"
+                          onClick={() => setSearchQuery("")}
+                          size="icon-xs"
+                        >
+                          <XIcon className="size-3.5" />
+                        </InputGroupButton>
+                      </InputGroupAddon>
+                    )}
+                  </InputGroup>
+                  <div className="max-h-[50dvh] overflow-y-auto">
+                    <SidebarHistory searchQuery={searchQuery} />
+                  </div>
+                </DialogContent>
+              </Dialog>
             </>
           )}
         </SidebarContent>
         <SidebarFooter className="border-t border-sidebar-border pt-2 pb-3">
-          <SidebarMenu>
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                className="h-8 rounded-lg text-sidebar-foreground/60 transition-colors duration-150 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
-                render={<Link href="/settings" onClick={closeMobile} />}
-                tooltip="Settings"
+          {mounted && user ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <button
+                    className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-1.5 py-1.5 text-left transition-colors duration-150 hover:bg-sidebar-accent/50 data-popup-open:bg-sidebar-accent group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"
+                    type="button"
+                  >
+                    <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-sidebar-accent text-[11px] font-semibold text-sidebar-foreground">
+                      {accountInitials(user)}
+                    </div>
+                    <div className="min-w-0 flex-1 group-data-[collapsible=icon]:hidden">
+                      <div className="truncate text-[13px] font-medium text-sidebar-foreground">
+                        {user.full_name?.trim() || user.username}
+                      </div>
+                      <div className="truncate text-[11px] text-sidebar-foreground/50">
+                        {user.full_name?.trim()
+                          ? `@${user.username}`
+                          : (user.email ?? null)}
+                      </div>
+                    </div>
+                    <ChevronsUpDownIcon className="size-3.5 shrink-0 text-sidebar-foreground/40 group-data-[collapsible=icon]:hidden" />
+                  </button>
+                }
               >
-                <SettingsIcon className="size-4" />
-                <span className="text-[13px]">Settings</span>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                className="h-8 rounded-lg text-sidebar-foreground/60 transition-colors duration-150 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
-                onClick={handleToggleTheme}
-                tooltip="Toggle theme"
+                <span className="sr-only">Account menu</span>
+              </DropdownMenuTrigger>
+
+              <DropdownMenuContent
+                align="start"
+                className="min-w-56"
+                side="top"
+                sideOffset={8}
               >
-                {mounted && resolvedTheme === "dark" ? (
-                  <SunIcon className="size-4" />
-                ) : (
-                  <MoonIcon className="size-4" />
-                )}
-                <span className="text-[13px]">Toggle theme</span>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                className="h-8 rounded-lg text-sidebar-foreground/60 transition-colors duration-150 hover:bg-destructive/10 hover:text-destructive"
-                onClick={handleLogout}
-                tooltip="Sign out"
-              >
-                <LogOutIcon className="size-4" />
-                <span className="text-[13px]">
-                  {mounted && user ? `Sign out (${user.username})` : "Sign out"}
-                </span>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          </SidebarMenu>
+                <DropdownMenuGroup>
+                  <DropdownMenuLabel className="flex flex-col gap-0.5 py-2 text-sidebar-foreground">
+                    <span className="text-[13px] font-medium">
+                      {user.full_name?.trim() || user.username}
+                    </span>
+                    <span className="text-[11px] font-normal text-sidebar-foreground/50">
+                      {user.full_name?.trim()
+                        ? `@${user.username}`
+                        : (user.email ?? null)}
+                    </span>
+                  </DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={handleGoToSettings}>
+                    <SettingsIcon className="size-4" />
+                    <span>Settings</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleToggleTheme}>
+                    {mounted && resolvedTheme === "dark" ? (
+                      <SunIcon className="size-4" />
+                    ) : (
+                      <MoonIcon className="size-4" />
+                    )}
+                    <span>Toggle theme</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={handleLogout}
+                    variant="destructive"
+                  >
+                    <LogOutIcon className="size-4" />
+                    <span>Sign out</span>
+                  </DropdownMenuItem>
+                </DropdownMenuGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : (
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  className="h-8 rounded-lg text-sidebar-foreground/60 transition-colors duration-150 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+                  render={<Link href="/settings" onClick={closeMobile} />}
+                  tooltip="Settings"
+                >
+                  <SettingsIcon className="size-4" />
+                  <span className="text-[13px]">Settings</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  className="h-8 rounded-lg text-sidebar-foreground/60 transition-colors duration-150 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+                  onClick={handleToggleTheme}
+                  tooltip="Toggle theme"
+                >
+                  {mounted && resolvedTheme === "dark" ? (
+                    <SunIcon className="size-4" />
+                  ) : (
+                    <MoonIcon className="size-4" />
+                  )}
+                  <span className="text-[13px]">Toggle theme</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  className="h-8 rounded-lg text-sidebar-foreground/60 transition-colors duration-150 hover:bg-destructive/10 hover:text-destructive"
+                  onClick={handleLogout}
+                  tooltip="Sign out"
+                >
+                  <LogOutIcon className="size-4" />
+                  <span className="text-[13px]">Sign out</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          )}
         </SidebarFooter>
         <SidebarRail />
       </Sidebar>
