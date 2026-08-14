@@ -296,6 +296,13 @@ function PreviewMessage({
           )}
         </MessageActions>
       )}
+      {isUser && (
+        <MessageActions className="pt-1 opacity-0 transition-opacity group-hover/message:opacity-100">
+          <MessageAction label="Copy" onClick={handleCopy} tooltip="Copy">
+            <CopyIcon />
+          </MessageAction>
+        </MessageActions>
+      )}
     </>
   );
 
