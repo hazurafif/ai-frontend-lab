@@ -316,12 +316,7 @@ function SkillsTab({
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <p className="text-[13px] text-muted-foreground">
-          Reusable instruction sets the agent can follow. Stored as{" "}
-          <code className="rounded bg-muted px-1 font-mono text-[12px]">
-            SKILL.md
-          </code>{" "}
-          plus optional bundled files (scripts/, references/, assets/) in the
-          backend; changes apply on the next run.
+          Reusable instruction sets the agent can follow.
         </p>
         <Button size="sm" variant="secondary" onClick={openNew}>
           <PlusIcon data-icon="inline-start" />
@@ -657,8 +652,7 @@ function ToolsTab({
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <p className="text-[13px] text-muted-foreground">
-          MCP tool servers the agent can call, persisted in the backend&apos;s
-          store. Changes apply after reconnect.
+          MCP tool servers the agent can call.
         </p>
         <div className="flex gap-2">
           <Button size="sm" variant="outline" onClick={reconnect}>

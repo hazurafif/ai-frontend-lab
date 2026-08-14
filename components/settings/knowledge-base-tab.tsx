@@ -406,8 +406,6 @@ export function KnowledgeBaseTab({
       <div className="flex items-center justify-between">
         <p className="text-[13px] text-muted-foreground">
           Documents the agent can consult (RAG), stored per user in the backend.
-          Files are parsed, chunked, and embedded on upload; the client never
-          stores file content.
         </p>
         <Button size="sm" variant="secondary" onClick={openNew}>
           <PlusIcon data-icon="inline-start" />
