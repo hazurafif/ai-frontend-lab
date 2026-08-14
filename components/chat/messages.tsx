@@ -112,7 +112,7 @@ function PureMessages({
         className="absolute inset-0 touch-pan-y overflow-y-auto"
         ref={messagesContainerRef}
       >
-        <div className="mx-auto flex h-full max-w-4xl flex-col gap-4 px-4 pt-14 pb-2 md:px-4">
+        <div className="mx-auto flex h-full max-w-4xl flex-col gap-4 px-4 pt-4 pb-2 md:px-4">
           {messages.map((message, index) => (
             <PreviewMessage
               chatId={chatId}

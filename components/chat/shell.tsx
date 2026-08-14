@@ -1,15 +1,18 @@
 "use client";
 
+import { PanelLeftIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { useSidebar } from "@/components/ui/sidebar";
 import { useActiveChat } from "@/hooks/use-active-chat";
 import type { ChatMessage } from "@/lib/types";
-import { ChatHeader } from "./chat-header";
 import { Greeting } from "./greeting";
 import { Messages } from "./messages";
 import { MultimodalInput } from "./multimodal-input";
 import { StarterCards } from "./starter-cards";
 
 export function ChatShell() {
+  const { toggleSidebar } = useSidebar();
   const {
     chatId,
     messages,
@@ -105,7 +108,17 @@ export function ChatShell() {
 
   return (
     <div className="relative flex h-dvh w-full flex-col overflow-hidden">
-      <ChatHeader chatId={chatId} />
+      {/* Mobile-only sidebar toggle — the chat header is gone, so this is the
+          only way to open the sidebar sheet on small screens. */}
+      <Button
+        aria-label="Open sidebar"
+        className="absolute top-3 left-3 z-20 bg-sidebar/70 backdrop-blur-md hover:bg-sidebar-accent md:hidden"
+        onClick={toggleSidebar}
+        size="icon-sm"
+        variant="ghost"
+      >
+        <PanelLeftIcon className="size-4" />
+      </Button>
 
       <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
         <Messages
