@@ -1,9 +1,9 @@
 // Knowledge base proxy route.
 //
-// Forwards /api/kb/* to the backend's /kb/* endpoints (per-user KB CRUD,
-// document upload + ingest, reindex, search) so the settings page can manage
-// RAG documents against the live backend. Unlike the /api/agent proxy, KB
-// routes are owner-scoped (get_current_user), not admin-only.
+// Forwards /api/knowledge/* to the backend's /knowledge/* endpoints (per-user
+// KB CRUD, document upload + ingest, reindex, search) so the settings page can
+// manage RAG documents against the live backend. Unlike the /api/agent proxy,
+// KB routes are owner-scoped (get_current_user), not admin-only.
 //
 // Configure in .env.local:
 //   BACKEND_URL="http://localhost:8000"
@@ -27,7 +27,7 @@ export async function DELETE(request: Request) {
 }
 
 async function forward(request: Request) {
-  // Map /api/kb/foo -> /kb/foo (strip the /api prefix).
+  // Map /api/knowledge/foo -> /knowledge/foo (strip the /api prefix).
   const target = new URL(
     new URL(request.url).pathname.replace(/^\/api/, ""),
     BACKEND_URL,

@@ -32,7 +32,7 @@ export const SETTINGS_TABS: SettingsTab[] = [
   { id: "model", label: "Model", icon: BotIcon },
   { id: "skills", label: "Skills", icon: WrenchIcon },
   { id: "tools", label: "Tools", icon: PuzzleIcon },
-  { id: "knowledge-base", label: "Knowledge base", icon: DatabaseIcon },
+  { id: "knowledge-base", label: "Knowledge", icon: DatabaseIcon },
   { id: "account", label: "Account", icon: UserIcon },
   { id: "users", label: "Users", icon: UsersIcon },
 ];

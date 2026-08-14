@@ -48,24 +48,24 @@ export type ToolConfig = {
 
 // --- Knowledge base (RAG document store) ------------------------------------
 //
-// Contract with the backend's /kb endpoints (proxied at /api/kb, per-user
-// owner-scoped auth — NOT the admin-only /agent resources):
+// Contract with the backend's /knowledge endpoints (proxied at /api/knowledge,
+// per-user owner-scoped auth — NOT the admin-only /agent resources):
 //
-//   GET    /kb                           → list the current user's KBs
-//   POST   /kb                           → create { name, description }
-//   GET    /kb/{id}                      → one KB
-//   PATCH  /kb/{id}                      → update { name, description }
-//   DELETE /kb/{id}                      → delete KB + documents + vectors
-//   POST   /kb/{id}/files                → multipart upload
+//   GET    /knowledge                     → list the current user's KBs
+//   POST   /knowledge                     → create { name, description }
+//   GET    /knowledge/{id}                → one KB
+//   PATCH  /knowledge/{id}                → update { name, description }
+//   DELETE /knowledge/{id}                → delete KB + documents + vectors
+//   POST   /knowledge/{id}/files          → multipart upload
 //                                            (FormData fields "files" and
 //                                             "paths", paired by index, so
 //                                             folder uploads keep structure)
-//   GET    /kb/{id}/files                → list documents (ingest status)
-//   GET    /kb/{id}/files/{docId}        → document detail
-//   GET    /kb/{id}/files/{docId}/content → raw file bytes (inline preview)
-//   DELETE /kb/{id}/files/{docId}        → delete one document
-//   POST   /kb/{id}/reindex              → re-parse + re-embed all documents
-//   GET    /kb/search?q=&limit=          → hybrid search across the user's KBs
+//   GET    /knowledge/{id}/files          → list documents (ingest status)
+//   GET    /knowledge/{id}/files/{docId}  → document detail
+//   GET    /knowledge/{id}/files/{docId}/content → raw file bytes (inline preview)
+//   DELETE /knowledge/{id}/files/{docId}  → delete one document
+//   POST   /knowledge/{id}/reindex        → re-parse + re-embed all documents
+//   GET    /knowledge/search?q=&limit=    → hybrid search across the user's KBs
 //
 // KBs are keyed by backend UUID (not name). Documents are ingested
 // synchronously on upload: status pending → processing → ready (or failed +
@@ -834,8 +834,8 @@ export function backendToolToToolConfig(
 
 // --- knowledge bases ---
 
-// JSON helper against /api/kb (per-user owner-scoped endpoints; the KB
-// routes live under /kb in the backend, not under /agent).
+// JSON helper against /api/knowledge (per-user owner-scoped endpoints; the KB
+// routes live under /knowledge in the backend, not under /agent).
 async function kbFetch(path: string, init?: RequestInit): Promise<Response> {
   let res: Response;
   try {
@@ -862,7 +862,7 @@ async function kbFetch(path: string, init?: RequestInit): Promise<Response> {
 }
 
 export async function fetchKnowledgeBases(): Promise<BackendKnowledgeBase[]> {
-  const res = await kbFetch("/kb");
+  const res = await kbFetch("/knowledge");
   return (await res.json()) as BackendKnowledgeBase[];
 }
 
@@ -870,7 +870,7 @@ export async function createKnowledgeBase(payload: {
   name: string;
   description: string;
 }): Promise<BackendKnowledgeBase> {
-  const res = await kbFetch("/kb", {
+  const res = await kbFetch("/knowledge", {
     method: "POST",
     body: JSON.stringify(payload),
   });
@@ -881,7 +881,7 @@ export async function updateKnowledgeBase(
   id: string,
   payload: { name?: string; description?: string },
 ): Promise<BackendKnowledgeBase> {
-  const res = await kbFetch(`/kb/${encodeURIComponent(id)}`, {
+  const res = await kbFetch(`/knowledge/${encodeURIComponent(id)}`, {
     method: "PATCH",
     body: JSON.stringify(payload),
   });
@@ -889,13 +889,13 @@ export async function updateKnowledgeBase(
 }
 
 export async function deleteKnowledgeBase(id: string): Promise<void> {
-  await kbFetch(`/kb/${encodeURIComponent(id)}`, { method: "DELETE" });
+  await kbFetch(`/knowledge/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
 export async function fetchKnowledgeBaseDocuments(
   id: string,
 ): Promise<BackendKnowledgeBaseDocument[]> {
-  const res = await kbFetch(`/kb/${encodeURIComponent(id)}/files`);
+  const res = await kbFetch(`/knowledge/${encodeURIComponent(id)}/files`);
   return (await res.json()) as BackendKnowledgeBaseDocument[];
 }
 
@@ -918,10 +918,13 @@ export async function uploadKnowledgeBaseFiles(
   }
   let res: Response;
   try {
-    res = await fetchWithAuth(`/api/kb/${encodeURIComponent(id)}/files`, {
-      method: "POST",
-      body: form,
-    });
+    res = await fetchWithAuth(
+      `/api/knowledge/${encodeURIComponent(id)}/files`,
+      {
+        method: "POST",
+        body: form,
+      },
+    );
   } catch {
     throw new Error("Backend unreachable.");
   }
@@ -946,18 +949,20 @@ export async function deleteKnowledgeBaseFile(
   docId: string,
 ): Promise<void> {
   await kbFetch(
-    `/kb/${encodeURIComponent(kbId)}/files/${encodeURIComponent(docId)}`,
+    `/knowledge/${encodeURIComponent(kbId)}/files/${encodeURIComponent(docId)}`,
     { method: "DELETE" },
   );
 }
 
 export async function reindexKnowledgeBase(id: string): Promise<void> {
-  await kbFetch(`/kb/${encodeURIComponent(id)}/reindex`, { method: "POST" });
+  await kbFetch(`/knowledge/${encodeURIComponent(id)}/reindex`, {
+    method: "POST",
+  });
 }
 
 // Raw content download (inline preview) — link target, not a JSON call.
 export function knowledgeBaseDocumentUrl(kbId: string, docId: string): string {
-  return `/api/kb/${encodeURIComponent(kbId)}/files/${encodeURIComponent(docId)}/content`;
+  return `/api/knowledge/${encodeURIComponent(kbId)}/files/${encodeURIComponent(docId)}/content`;
 }
 
 export function backendDocumentToKnowledgeBaseDocument(
