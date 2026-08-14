@@ -392,7 +392,11 @@ export function AppSidebar() {
                     ) : (
                       <MoonIcon className="size-4" />
                     )}
-                    <span>Toggle theme</span>
+                    <span>
+                      {mounted && resolvedTheme === "dark"
+                        ? "Light mode"
+                        : "Dark mode"}
+                    </span>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
@@ -421,14 +425,22 @@ export function AppSidebar() {
                 <SidebarMenuButton
                   className="h-8 rounded-lg text-sidebar-foreground/60 transition-colors duration-150 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
                   onClick={handleToggleTheme}
-                  tooltip="Toggle theme"
+                  tooltip={
+                    mounted && resolvedTheme === "dark"
+                      ? "Light mode"
+                      : "Dark mode"
+                  }
                 >
                   {mounted && resolvedTheme === "dark" ? (
                     <SunIcon className="size-4" />
                   ) : (
                     <MoonIcon className="size-4" />
                   )}
-                  <span className="text-[13px]">Toggle theme</span>
+                  <span className="text-[13px]">
+                    {mounted && resolvedTheme === "dark"
+                      ? "Light mode"
+                      : "Dark mode"}
+                  </span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
