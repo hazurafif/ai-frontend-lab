@@ -174,7 +174,19 @@ export function MultimodalInput({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [modelSelectorOpen, setModelSelectorOpen] = useState(false);
   const [inputFocused, setInputFocused] = useState(false);
-  const [attachments, setAttachments] = useState<File[]>([]);
+  // Picked files with their object URL created ONCE at pick time (never in
+  // render — render-time createObjectURL leaks a new blob URL per re-render
+  // and makes previews unstable under StrictMode double-rendering). URLs are
+  // revoked on remove, chat switch, and unmount.
+  const [attachments, setAttachments] = useState<{ file: File; url: string }[]>(
+    [],
+  );
+  const attachmentsRef = useRef(attachments);
+  useEffect(() => {
+    attachmentsRef.current = attachments;
+  }, [attachments]);
+
+  // TEMP DEBUG
   // Run status of this thread from the durable-chat store (background runs
   // started elsewhere — another tab, "new chat" while answering).
   const { statuses } = useThreads();
@@ -292,8 +304,22 @@ export function MultimodalInput({
 
   // Drop picked files when switching chats so attachments never leak.
   useEffect(() => {
-    setAttachments([]);
+    setAttachments((current) => {
+      for (const attachment of current) {
+        URL.revokeObjectURL(attachment.url);
+      }
+      return [];
+    });
   }, [chatId]);
+
+  // Revoke any URLs still alive when the composer unmounts.
+  useEffect(() => {
+    return () => {
+      for (const attachment of attachmentsRef.current) {
+        URL.revokeObjectURL(attachment.url);
+      }
+    };
+  }, []);
 
   // Global ⌘K / Ctrl+K — focus the message input from anywhere in the app.
   useEffect(() => {
@@ -428,14 +454,30 @@ export function MultimodalInput({
   );
 
   const handleFiles = (files: FileList | null) => {
-    if (!files) {
+    if (!files || files.length === 0) {
       return;
     }
-    setAttachments((current) => [...current, ...Array.from(files)]);
+    setAttachments((current) => [
+      ...current,
+      ...Array.from(files).map((file) => ({
+        file,
+        url: URL.createObjectURL(file),
+      })),
+    ]);
     // Allow re-picking the same file after removing it.
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
+  };
+
+  const removeAttachment = (index: number) => {
+    setAttachments((current) => {
+      const target = current[index];
+      if (target) {
+        URL.revokeObjectURL(target.url);
+      }
+      return current.filter((_, i) => i !== index);
+    });
   };
 
   const submitForm = (event: FormEvent) => {
@@ -446,16 +488,18 @@ export function MultimodalInput({
     }
     setInput("");
     const files = attachments;
+    // Keep the object URLs alive: the sent message's bubble preview still
+    // references them (revocation happens on remove / chat switch / unmount).
     setAttachments([]);
     sendMessage({
       parts: [
         ...(text ? [{ text, type: "text" } as const] : []),
-        ...files.map((file) => ({
+        ...files.map(({ file, url }) => ({
           file,
           filename: file.name,
           mediaType: file.type || "application/octet-stream",
           type: "file" as const,
-          url: URL.createObjectURL(file),
+          url,
         })),
       ],
       role: "user",
@@ -522,21 +566,17 @@ export function MultimodalInput({
 
         {attachments.length > 0 && (
           <Attachments variant="grid">
-            {attachments.map((file, index) => (
+            {attachments.map(({ file, url }, index) => (
               <Attachment
                 data={{
                   filename: file.name,
                   id: `${file.name}-${index}`,
                   mediaType: file.type || "application/octet-stream",
                   type: "file",
-                  url: URL.createObjectURL(file),
+                  url,
                 }}
                 key={`${file.name}-${index}`}
-                onRemove={() =>
-                  setAttachments((current) =>
-                    current.filter((_, i) => i !== index),
-                  )
-                }
+                onRemove={() => removeAttachment(index)}
                 title={`${file.name} (${(file.size / 1024).toFixed(0)} KB)`}
               >
                 <AttachmentPreview />
@@ -830,7 +870,9 @@ export function MultimodalInput({
               <Button
                 aria-label="Send message"
                 className="bg-foreground text-background hover:bg-foreground/90"
-                disabled={!input.trim() || runActive}
+                disabled={
+                  (!input.trim() && attachments.length === 0) || runActive
+                }
                 size="icon-sm"
                 title={
                   runActive

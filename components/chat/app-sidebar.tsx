@@ -50,6 +50,7 @@ import {
 import { useActiveChat } from "@/hooks/use-active-chat";
 import { useAuth } from "@/hooks/use-auth";
 import type { AuthUser } from "@/lib/auth";
+import { HISTORY_STORAGE_KEY, LAST_ACTIVE_CHAT_KEY } from "@/lib/constants";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -130,11 +131,23 @@ export function AppSidebar() {
     newChat();
   }, [newChat, setOpenMobile]);
 
-  // Settings sidebar: return to the chat UI. newChat() only navigates when a
-  // chat route is open, so it can't be reused here — push / explicitly (the
-  // active thread is restored from the ActiveChatProvider store).
+  // Settings sidebar: return to the chat UI. The / route always starts a
+  // new chat, so restore the last opened conversation (tracked in
+  // use-active-chat) when it still exists; fall back to the home composer.
   const handleBackToChat = useCallback(() => {
     setOpenMobile(false);
+    try {
+      const lastId = window.localStorage.getItem(LAST_ACTIVE_CHAT_KEY);
+      const history = JSON.parse(
+        window.localStorage.getItem(HISTORY_STORAGE_KEY) ?? "[]",
+      ) as { id?: string }[];
+      if (lastId && history.some((chat) => chat.id === lastId)) {
+        router.push(`/chat/${lastId}`);
+        return;
+      }
+    } catch {
+      // malformed cache — fall through to the home composer
+    }
     router.push("/");
   }, [router, setOpenMobile]);
 

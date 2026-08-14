@@ -8,6 +8,11 @@ export const CHAT_STORAGE_PREFIX = "chat-messages:";
 // localStorage key for the JWT returned by the backend /login endpoint
 export const AUTH_TOKEN_KEY = "app-auth-token";
 
+// localStorage key for the last conversation the user opened
+// (`/chat/<id>`). Navigation back from /settings restores this thread
+// instead of landing on a blank new chat (the / route always starts new).
+export const LAST_ACTIVE_CHAT_KEY = "app-last-active-chat";
+
 // localStorage key for the refresh token (exchanged for a fresh access
 // token via POST /api/auth/refresh when the access token expires)
 export const REFRESH_TOKEN_KEY = "app-refresh-token";

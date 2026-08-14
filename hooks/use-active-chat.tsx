@@ -26,6 +26,7 @@ import {
   CHAT_STORAGE_PREFIX,
   HISTORY_CHANGED_EVENT,
   HISTORY_STORAGE_KEY,
+  LAST_ACTIVE_CHAT_KEY,
   SETTINGS_CHANGED_EVENT,
 } from "@/lib/constants";
 import { ChatbotError } from "@/lib/errors";
@@ -498,6 +499,18 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     setActiveThreadId(chatIdFromUrl ?? newChatId);
   }, [chatIdFromUrl, newChatId, setActiveThreadId]);
+
+  // Remember the last opened conversation, so "Back to chat" from /settings
+  // can restore it (the / route always starts a fresh new chat).
+  useEffect(() => {
+    if (chatIdFromUrl) {
+      try {
+        window.localStorage.setItem(LAST_ACTIVE_CHAT_KEY, chatIdFromUrl);
+      } catch {
+        // ignore
+      }
+    }
+  }, [chatIdFromUrl]);
 
   // Persist messages after streaming finishes (and on any non-streaming change).
   const prevStatusRef = useRef(status);
