@@ -405,18 +405,17 @@ export function KnowledgeBaseTab({
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <p className="text-[13px] text-muted-foreground">
-          Documents the agent can consult (RAG), stored per user in the backend.
+          Documents the agent can consult (RAG).
         </p>
         <Button size="sm" variant="secondary" onClick={openNew}>
           <PlusIcon data-icon="inline-start" />
-          New knowledge base
+          New
         </Button>
       </div>
 
       {settings.knowledgeBases.length === 0 && (
         <Card className="text-[13px] text-muted-foreground">
-          No knowledge base yet — create one and upload documents the agent
-          should know about.
+          No knowledge base yet.
         </Card>
       )}
 

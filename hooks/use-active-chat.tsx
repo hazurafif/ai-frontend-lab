@@ -2,7 +2,7 @@
 
 import type { UseChatHelpers } from "@ai-sdk/react";
 import { useChat } from "@ai-sdk/react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   createContext,
   type Dispatch,
@@ -66,10 +66,15 @@ type ActiveChatContextValue = {
   setThinkingEffort: (effort: ThinkingEffort) => void;
   deleteChat: (chatId: string) => void;
   deleteAllChats: () => void;
-  /** Resume a human-in-the-loop interrupt with a decision (approve/reject/...). */
+  /** Start a fresh conversation, also when already on "/". */
+  newChat: () => void;
+  /** Resume a human-in-the-loop interrupt with a decision payload
+   * (`{decision}` for a single action request, `{decisions}` for several).
+   * Passed straight into the request body — wrapping it again would nest
+   * the decision and break the backend's HITL resume ("'type'" error). */
   resumeInterrupt: (
     messageId: string,
-    decision: Record<string, unknown>,
+    decisionPayload: Record<string, unknown>,
   ) => void;
   /** Replace the message with the given id (dropping everything after it). */
   editMessage: (originalMessageId: string, newText: string) => void;
@@ -171,19 +176,25 @@ function extractChatId(pathname: string): string | null {
 
 export function ActiveChatProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
   const { isAuthenticated } = useAuth();
 
   const chatIdFromUrl = extractChatId(pathname);
   const isNewChat = !chatIdFromUrl;
-  const newChatIdRef = useRef(generateUUID());
+  // The id of the ad-hoc "new chat" session on "/". Regenerated on every
+  // visit to "/" (pathname change) and on explicit "New chat" clicks.
+  // State (not a ref) so a click can regenerate it in place while already
+  // on "/" — there router.push("/") is a no-op and the pathname check
+  // below never fires, which made the sidebar button do nothing.
+  const [newChatId, setNewChatId] = useState(generateUUID());
   const prevPathnameRef = useRef(pathname);
 
   if (isNewChat && prevPathnameRef.current !== pathname) {
-    newChatIdRef.current = generateUUID();
+    setNewChatId(generateUUID());
   }
   prevPathnameRef.current = pathname;
 
-  const chatId = chatIdFromUrl ?? newChatIdRef.current;
+  const chatId = chatIdFromUrl ?? newChatId;
 
   // The chat starts with the model saved in /settings; the selector in the
   // chat input overrides it per conversation. Mount-gated so the server
@@ -378,6 +389,20 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
     }
   }, [isAuthenticated]);
 
+  // "New chat" from the sidebar: navigate to "/" from a chat route (the
+  // pathname change regenerates the new-chat id above); while already on
+  // "/" regenerate the id in place and drop the current draft so the
+  // conversation area resets immediately.
+  const newChat = useCallback(() => {
+    if (chatIdFromUrl) {
+      router.push("/");
+      return;
+    }
+    setNewChatId(generateUUID());
+    setMessages([]);
+    setInput("");
+  }, [chatIdFromUrl, router, setInput, setMessages]);
+
   // Stop generation client-side AND abort the server-side run, so the agent
   // actually stops (the client abort alone only closes the stream).
   const stopRef = useRef(stop);
@@ -452,6 +477,7 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
       input,
       isLoading,
       messages,
+      newChat,
       regenerate,
       resumeInterrupt,
       rewindMessage,
@@ -473,6 +499,7 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
       input,
       isLoading,
       messages,
+      newChat,
       regenerate,
       resumeInterrupt,
       rewindMessage,
