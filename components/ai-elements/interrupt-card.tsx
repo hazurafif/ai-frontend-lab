@@ -66,6 +66,16 @@ function requestName(request: ActionRequest): string {
   return request.name ?? request.action ?? "tool";
 }
 
+/** Card title derived from the tool(s) awaiting approval: "execute
+ * approval", "write_file approval", … (fallback: "Approval required"). */
+function approvalTitle(actionRequests: ActionRequest[]): string {
+  const names = Array.from(new Set(actionRequests.map(requestName)));
+  if (names.length === 1 && names[0] && names[0] !== "tool") {
+    return `${names[0]} approval`;
+  }
+  return names.length > 1 ? `${names.length} tools approval` : "Approval required";
+}
+
 export function InterruptCard({
   part,
   message,
@@ -147,7 +157,7 @@ export function InterruptCard({
         <CollapsibleTrigger className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-muted/40">
           <WrenchIcon className="size-3.5 shrink-0 text-muted-foreground" />
           <span className="min-w-0 truncate text-[12px] font-medium text-foreground">
-            Approval required
+            {approvalTitle(actionRequests)}
           </span>
           <Badge
             className="ml-auto"
@@ -176,7 +186,7 @@ export function InterruptCard({
       <div className="flex items-center gap-2 px-3 py-2">
         <WrenchIcon className="size-3.5 shrink-0 text-muted-foreground" />
         <span className="text-[12px] font-medium text-foreground">
-          Approval required
+          {approvalTitle(actionRequests)}
         </span>
         <Badge className="ml-auto" variant="secondary">
           {actionRequests.length > 0
