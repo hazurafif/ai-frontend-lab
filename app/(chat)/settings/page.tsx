@@ -74,7 +74,6 @@ import {
   type ModelConnection,
 } from "@/lib/models";
 import {
-  type AppSettings,
   createSkill as apiCreateSkill,
   createToolServer as apiCreateToolServer,
   deleteSkill as apiDeleteSkill,
@@ -849,16 +848,10 @@ function GeneralTab({
   settings,
   setSettings,
   isAdmin,
-  appSettings,
-  onAppSettingsChange,
 }: {
   settings: SettingsState;
   setSettings: (updater: (current: SettingsState) => SettingsState) => void;
   isAdmin: boolean;
-  // Live backend /settings values (admin-only) — carries the db/env source
-  // badges; null when the backend is offline or the user isn't an admin.
-  appSettings: AppSettings | null;
-  onAppSettingsChange: (next: AppSettings) => void;
 }) {
   const [prompt, setPrompt] = useState(settings.systemPrompt);
   const [interruptOn, setInterruptOn] = useState(settings.interruptOn);
@@ -917,7 +910,6 @@ function GeneralTab({
           inheritEnv: executeInheritEnv,
         },
       });
-      onAppSettingsChange(next);
       setSettings((current) => ({
         ...current,
         execute: {
@@ -993,9 +985,8 @@ function GeneralTab({
             <div className="flex flex-col gap-0.5">
               <span className="text-sm font-medium">Execute tool</span>
               <span className="text-[13px] text-muted-foreground">
-                Let the agent run shell commands on the host (LocalShellBackend
-                instead of the safe store backend). Unrestricted — trusted
-                environments only; pair it with human-in-the-loop for approval.
+                Let the agent run shell commands on the host. Unrestricted —
+                trusted environments only; pair with human-in-the-loop.
               </span>
             </div>
             <Switch
@@ -1008,7 +999,7 @@ function GeneralTab({
             <div className="flex max-w-sm flex-col gap-0.5">
               <span className="text-sm font-medium">Max timeout (seconds)</span>
               <span className="text-[13px] text-muted-foreground">
-                Cap on a single command&apos;s runtime (1–86400).
+                Max runtime per command (1–86400 seconds).
               </span>
             </div>
             <Input
@@ -1025,8 +1016,7 @@ function GeneralTab({
             <div className="flex flex-col gap-0.5">
               <span className="text-sm font-medium">Inherit environment</span>
               <span className="text-[13px] text-muted-foreground">
-                Expose the server&apos;s environment variables to executed
-                commands.
+                Expose the server&apos;s environment to executed commands.
               </span>
             </div>
             <Switch
@@ -1044,14 +1034,6 @@ function GeneralTab({
             >
               {savingExecute ? "Saving…" : "Save execution settings"}
             </Button>
-            {appSettings && (
-              <Badge
-                className="font-mono text-[11px] text-muted-foreground"
-                variant="outline"
-              >
-                source: {appSettings.execute.source}
-              </Badge>
-            )}
           </div>
         </Card>
       )}
@@ -1068,16 +1050,10 @@ function ModelTab({
   settings,
   setSettings,
   isAdmin,
-  appSettings,
-  onAppSettingsChange,
 }: {
   settings: SettingsState;
   setSettings: (updater: (current: SettingsState) => SettingsState) => void;
   isAdmin: boolean;
-  // Live backend /settings values (admin-only) — carries the db/env source
-  // badges; null when the backend is offline or the user isn't an admin.
-  appSettings: AppSettings | null;
-  onAppSettingsChange: (next: AppSettings) => void;
 }) {
   const [modelId, setModelId] = useState(settings.model);
   const [open, setOpen] = useState(false);
@@ -1258,7 +1234,6 @@ function ModelTab({
       const next = await updateAppSettings({
         connections: { fallbackEnv },
       });
-      onAppSettingsChange(next);
       setSettings((current) => ({
         ...current,
         connectionsFallbackEnv: next.connections.fallbackEnv,
@@ -1402,12 +1377,10 @@ function ModelTab({
               </SelectContent>
             </Select>
             <FieldDescription>
-              Where the model list below comes from. Server default uses the
-              source configured in the server environment (.env.local); the
-              others use your key to list models via the source&apos;s
-              /v1/models endpoint. The agent&apos;s runtime connection (what
-              chat requests actually use) is resolved by the backend from its
-              saved Connections below — .env is only an opt-in fallback.
+              Where the model list below comes from — server default = server
+              environment (.env.local), or your key via the source&apos;s
+              /v1/models endpoint. Chat requests use the backend&apos;s saved
+              Connections below (.env is only an opt-in fallback).
             </FieldDescription>
           </Field>
           {connDraft.provider !== "default" && (
@@ -1556,9 +1529,8 @@ function ModelTab({
               <code className="rounded bg-muted px-1 font-mono text-[12px]">
                 selectedChatModel
               </code>{" "}
-              in chat requests; the backend resolves the actual model. The chat
-              opens with this model — change it per conversation from the input
-              toolbar.
+              in chat requests. The chat opens with this model — change it per
+              conversation from the input toolbar.
             </FieldDescription>
           </Field>
         </FieldGroup>
@@ -1572,9 +1544,9 @@ function ModelTab({
                   Fall back to .env credentials
                 </span>
                 <span className="text-[13px] text-muted-foreground">
-                  When no saved connection of a kind exists, use .env
-                  credentials instead of failing. Off (default) — the agent
-                  fails loudly until a default connection is created below.
+                  Use .env credentials when no saved connection of a kind
+                  exists. Off (default) — the agent fails loudly until a default
+                  connection is created.
                 </span>
               </div>
               <Switch
@@ -1592,14 +1564,6 @@ function ModelTab({
               >
                 {savingPolicy ? "Saving…" : "Save policy"}
               </Button>
-              {appSettings && (
-                <Badge
-                  className="font-mono text-[11px] text-muted-foreground"
-                  variant="outline"
-                >
-                  source: {appSettings.connections.source}
-                </Badge>
-              )}
             </div>
           </Card>
           <Card className="flex flex-col gap-4">
@@ -1887,9 +1851,6 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState<SettingsState>(DEFAULT_SETTINGS);
   const [loaded, setLoaded] = useState(false);
   const [backendOnline, setBackendOnline] = useState(false);
-  // Live backend /settings (admin-only): execute tool + connection policy,
-  // with their db/env sources for the badges in the tabs.
-  const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
   const isAdmin = user?.role === "admin";
 
   useEffect(() => {
@@ -1956,7 +1917,6 @@ export default function SettingsPage() {
         if (cancelled) {
           return;
         }
-        setAppSettings(live);
         setSettings((current) => ({
           ...current,
           connectionsFallbackEnv: live.connections.fallbackEnv,
@@ -2011,18 +1971,14 @@ export default function SettingsPage() {
           <div className="min-h-0 flex-1 overflow-y-auto pr-1">
             <TabsContent value="general">
               <GeneralTab
-                appSettings={appSettings}
                 isAdmin={isAdmin}
-                onAppSettingsChange={setAppSettings}
                 settings={settings}
                 setSettings={update}
               />
             </TabsContent>
             <TabsContent value="model">
               <ModelTab
-                appSettings={appSettings}
                 isAdmin={isAdmin}
-                onAppSettingsChange={setAppSettings}
                 settings={settings}
                 setSettings={update}
               />
