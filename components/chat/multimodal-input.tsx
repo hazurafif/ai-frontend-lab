@@ -6,14 +6,34 @@ import {
   BrainIcon,
   CheckIcon,
   ChevronDownIcon,
-  FileIcon,
-  PaperclipIcon,
+  MicIcon,
+  PlusIcon,
   PuzzleIcon,
   SquareIcon,
   XIcon,
 } from "lucide-react";
 import type { FormEvent, KeyboardEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { getContextWindow } from "tokenlens";
+import {
+  Attachment,
+  AttachmentPreview,
+  AttachmentRemove,
+  Attachments,
+} from "@/components/ai-elements/attachments";
+import {
+  Context,
+  ContextCacheUsage,
+  ContextContent,
+  ContextContentBody,
+  ContextContentFooter,
+  ContextContentHeader,
+  ContextIcon,
+  ContextInputUsage,
+  ContextOutputUsage,
+  ContextReasoningUsage,
+  ContextTrigger,
+} from "@/components/ai-elements/context";
 import {
   ModelSelector,
   ModelSelectorContent,
@@ -33,7 +53,14 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Kbd } from "@/components/ui/kbd";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useAvailableModels } from "@/hooks/use-available-models";
 import { chatModelName, chatModels } from "@/lib/models";
 import {
@@ -55,45 +82,58 @@ const THINKING_EFFORT_LABELS: Record<ThinkingEffort, string> = {
   xhigh: "Extra high",
 };
 
-/** 12345 → "12.3k", 1234567 → "1.2M". */
-function formatTokens(n: number): string {
-  if (n >= 1_000_000) {
-    return `${(n / 1_000_000).toFixed(1)}M`;
-  }
-  if (n >= 1_000) {
-    return `${(n / 1_000).toFixed(1)}k`;
-  }
-  return String(n);
+// Minimal shape of the Web Speech API recognition (untyped in TS DOM lib).
+type SpeechRecognitionLike = {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onend: (() => void) | null;
+  onerror: ((event: { error: string }) => void) | null;
+  onresult:
+    | ((event: {
+        resultIndex: number;
+        results: ArrayLike<{
+          isFinal: boolean;
+          0: { transcript: string };
+        }>;
+      }) => void)
+    | null;
+  start: () => void;
+  stop: () => void;
+  abort: () => void;
+};
+
+/** Browser speech recognition constructor (Chrome/Edge/Safari); null elsewhere. */
+function speechRecognitionCtor(): (new () => SpeechRecognitionLike) | null {
+  const w = window as unknown as {
+    SpeechRecognition?: new () => SpeechRecognitionLike;
+    webkitSpeechRecognition?: new () => SpeechRecognitionLike;
+  };
+  return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
 }
 
-function UsagePill({ usage }: { usage: ThreadUsage }) {
-  const context = usage.context;
-  if (!context?.context_window) {
+/**
+ * Resolve the model to an id tokenlens knows (its catalog uses bare model
+ * ids): try the raw id, then the part after the `provider:` prefix, then
+ * fall back to `deepseek-chat` — the opencode proxy serves the DeepSeek
+ * chat line under names like `deepseek-v4-flash` that neither the backend's
+ * curated table nor the tokenlens catalog list (deepseek-chat is the same
+ * line: 128k window + pricing). Null when truly unknown.
+ */
+function tokenlensModelId(model: string | null | undefined): string | null {
+  if (!model) {
     return null;
   }
-  const utilization = Math.round((context.utilization ?? 0) * 100);
-  const title = [
-    `Context: ${context.current_input_tokens.toLocaleString()} / ${context.context_window.toLocaleString()} tokens`,
-    usage.usage
-      ? `Cumulative: ${usage.usage.input_tokens.toLocaleString()} in / ${usage.usage.output_tokens.toLocaleString()} out (${usage.usage.runs} runs)`
-      : null,
-    `${usage.messages.count} messages`,
-  ]
-    .filter(Boolean)
-    .join(" · ");
-
-  return (
-    <div
-      className="hidden shrink-0 items-center gap-1.5 rounded-full border border-border/60 bg-muted/40 px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-opacity duration-150 sm:flex"
-      title={title}
-    >
-      <span>
-        {formatTokens(context.current_input_tokens)} /{" "}
-        {formatTokens(context.context_window)}
-      </span>
-      <span className="text-muted-foreground/50">· {utilization}%</span>
-    </div>
-  );
+  const candidates = [model, model.split(":")[1] ?? model];
+  for (const id of candidates) {
+    if (getContextWindow(id)?.combinedMax) {
+      return id;
+    }
+  }
+  if (model.includes("deepseek")) {
+    return "deepseek-chat";
+  }
+  return null;
 }
 
 type MultimodalInputProps = {
@@ -144,6 +184,44 @@ export function MultimodalInput({
   // hidden while a run is in progress, and for new chats / guests (no
   // server report yet — 404/401 → null).
   const [usage, setUsage] = useState<ThreadUsage | null>(null);
+
+  // The model context window: the backend's curated table first, tokenlens
+  // as fallback (see tokenlensModelId). Null → the ring stays hidden and
+  // the plain token-count pill carries the info.
+  const contextWindow = useMemo(() => {
+    if (usage?.context?.context_window) {
+      return usage.context.context_window;
+    }
+    const resolved = tokenlensModelId(usage?.model);
+    return resolved ? (getContextWindow(resolved)?.combinedMax ?? null) : null;
+  }, [usage?.context?.context_window, usage?.model]);
+
+  const costModelId = useMemo(
+    () => tokenlensModelId(usage?.model) ?? usage?.model ?? undefined,
+    [usage?.model],
+  );
+
+  // Backend cumulative usage → AI SDK v7 LanguageModelUsage (the ai-elements
+  // Context card reads inputTokens/outputTokens and the nested details).
+  const aiUsage = useMemo(() => {
+    if (!usage?.usage) {
+      return undefined;
+    }
+    return {
+      inputTokenDetails: {
+        cacheReadTokens: undefined,
+        cacheWriteTokens: undefined,
+        noCacheTokens: undefined,
+      },
+      inputTokens: usage.usage.input_tokens,
+      outputTokenDetails: {
+        reasoningTokens: undefined,
+        textTokens: undefined,
+      },
+      outputTokens: usage.usage.output_tokens,
+      totalTokens: usage.usage.total_tokens,
+    };
+  }, [usage?.usage]);
 
   useEffect(() => {
     let cancelled = false;
@@ -196,6 +274,81 @@ export function MultimodalInput({
   useEffect(() => {
     setIsMac(/mac/i.test(navigator.platform || navigator.userAgent));
   }, []);
+
+  // Dictation via the Web Speech API (browser-native, no backend). The mic
+  // button toggles it; transcripts append to the current input, keeping
+  // whatever was typed before the mic went on.
+  const [speechSupported, setSpeechSupported] = useState(false);
+  const [listening, setListening] = useState(false);
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const baseInputRef = useRef("");
+
+  useEffect(() => {
+    const Ctor = speechRecognitionCtor();
+    if (!Ctor) {
+      return;
+    }
+    setSpeechSupported(true);
+    const recognition = new Ctor();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = "en-US";
+    // Live updates: the latest (interim or final) result replaces the
+    // dictation tail of the input.
+    recognition.onresult = (event) => {
+      const latest = event.results[event.resultIndex];
+      if (!latest) {
+        return;
+      }
+      setInput(`${baseInputRef.current}${latest[0].transcript}`);
+    };
+    recognition.onend = () => setListening(false);
+    recognition.onerror = () => setListening(false);
+    recognitionRef.current = recognition;
+    return () => {
+      recognition.abort();
+      recognitionRef.current = null;
+    };
+  }, [setInput]);
+
+  const toggleDictation = () => {
+    const recognition = recognitionRef.current;
+    if (!recognition) {
+      return;
+    }
+    if (listening) {
+      recognition.stop();
+      setListening(false);
+      return;
+    }
+    baseInputRef.current = input;
+    recognition.start();
+    setListening(true);
+  };
+
+  // ⌘D / Ctrl+D — toggle dictation from anywhere (the mic button shows it).
+  useEffect(() => {
+    const handleDictationKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        event.key.toLowerCase() === "d" &&
+        !event.altKey
+      ) {
+        event.preventDefault();
+        toggleDictation();
+      }
+    };
+    window.addEventListener("keydown", handleDictationKeyDown);
+    return () => window.removeEventListener("keydown", handleDictationKeyDown);
+  });
+
+  // Sending/streaming stops dictation so the mic never runs during a run.
+  useEffect(() => {
+    if (isLoading && listening) {
+      recognitionRef.current?.stop();
+      setListening(false);
+    }
+  }, [isLoading, listening]);
 
   useEffect(() => {
     const handleGlobalKeyDown = (event: globalThis.KeyboardEvent) => {
@@ -274,6 +427,7 @@ export function MultimodalInput({
         ...(text ? [{ text, type: "text" } as const] : []),
         ...files.map((file) => ({
           file,
+          filename: file.name,
           mediaType: file.type || "application/octet-stream",
           type: "file" as const,
           url: URL.createObjectURL(file),
@@ -337,37 +491,34 @@ export function MultimodalInput({
           />
 
           {!inputFocused && !input && (
-            <kbd className="pointer-events-none shrink-0 select-none rounded-md border border-border/60 bg-muted/60 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground/70">
-              {isMac ? "⌘K" : "Ctrl K"}
-            </kbd>
+            <Kbd className="shrink-0">{isMac ? "⌘K" : "Ctrl K"}</Kbd>
           )}
         </div>
 
         {attachments.length > 0 && (
-          <div className="flex flex-wrap gap-1.5">
+          <Attachments variant="grid">
             {attachments.map((file, index) => (
-              <div
-                className="flex max-w-56 items-center gap-1.5 rounded-lg border border-border/60 bg-muted/40 py-1 pr-1 pl-2 text-[12px] text-muted-foreground"
+              <Attachment
+                data={{
+                  filename: file.name,
+                  id: `${file.name}-${index}`,
+                  mediaType: file.type || "application/octet-stream",
+                  type: "file",
+                  url: URL.createObjectURL(file),
+                }}
                 key={`${file.name}-${index}`}
+                onRemove={() =>
+                  setAttachments((current) =>
+                    current.filter((_, i) => i !== index),
+                  )
+                }
                 title={`${file.name} (${(file.size / 1024).toFixed(0)} KB)`}
               >
-                <FileIcon className="size-3.5 shrink-0" />
-                <span className="truncate">{file.name}</span>
-                <button
-                  aria-label={`Remove ${file.name}`}
-                  className="rounded p-0.5 text-muted-foreground/60 transition-colors hover:text-destructive"
-                  onClick={() =>
-                    setAttachments((current) =>
-                      current.filter((_, i) => i !== index),
-                    )
-                  }
-                  type="button"
-                >
-                  <XIcon className="size-3" />
-                </button>
-              </div>
+                <AttachmentPreview />
+                <AttachmentRemove />
+              </Attachment>
             ))}
-          </div>
+          </Attachments>
         )}
 
         <div className="flex items-center gap-1.5">
@@ -393,7 +544,7 @@ export function MultimodalInput({
               type="button"
               variant="ghost"
             >
-              <PaperclipIcon className="size-4" />
+              <PlusIcon className="size-4" />
             </Button>
 
             <ModelSelector
@@ -557,7 +708,78 @@ export function MultimodalInput({
           </div>
 
           <div className="ml-auto flex shrink-0 items-center gap-1.5">
-            {usage && <UsagePill usage={usage} />}
+            {usage?.context?.current_input_tokens && contextWindow ? (
+              <Context
+                maxTokens={contextWindow}
+                modelId={costModelId}
+                usedTokens={usage.context.current_input_tokens}
+                usage={aiUsage}
+              >
+                <ContextTrigger>
+                  <ContextIcon />
+                </ContextTrigger>
+                <ContextContent>
+                  <ContextContentHeader />
+                  <ContextContentBody>
+                    <ContextInputUsage />
+                    <ContextOutputUsage />
+                    <ContextReasoningUsage />
+                    <ContextCacheUsage />
+                  </ContextContentBody>
+                  <ContextContentFooter>
+                    {usage.cost ? (
+                      <>
+                        <span className="text-muted-foreground">
+                          Total cost
+                        </span>
+                        <span>
+                          {new Intl.NumberFormat("en-US", {
+                            currency: usage.cost.currency,
+                            maximumFractionDigits:
+                              usage.cost.total_cost < 0.01 ? 6 : 2,
+                            minimumFractionDigits:
+                              usage.cost.total_cost < 0.01 ? 4 : 2,
+                            style: "currency",
+                          }).format(usage.cost.total_cost)}
+                        </span>
+                      </>
+                    ) : undefined}
+                  </ContextContentFooter>
+                </ContextContent>
+              </Context>
+            ) : null}
+
+            {speechSupported && (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        aria-label={
+                          listening ? "Stop dictation" : "Dictate message"
+                        }
+                        className={
+                          listening
+                            ? "bg-foreground/10 text-red-500 hover:bg-foreground/15 hover:text-red-500"
+                            : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                        }
+                        size="icon-sm"
+                        type="button"
+                        variant="ghost"
+                      />
+                    }
+                  >
+                    <MicIcon
+                      className={`size-4 ${listening ? "animate-pulse" : ""}`}
+                    />
+                  </TooltipTrigger>
+                  <TooltipContent side="top">
+                    <span>{listening ? "Stop dictation" : "Dictation"}</span>
+                    <Kbd>{isMac ? "⌘D" : "Ctrl D"}</Kbd>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
 
             {isLoading ? (
               <Button

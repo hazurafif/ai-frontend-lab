@@ -1,11 +1,11 @@
 "use client";
 
 import type { UseChatHelpers } from "@ai-sdk/react";
+import type { FileUIPart } from "ai";
 import {
   BrainIcon,
   ChevronDownIcon,
   CopyIcon,
-  FileIcon,
   Loader2Icon,
   RefreshCwIcon,
   RotateCcwIcon,
@@ -26,6 +26,11 @@ import {
 import { extractPrefabPayload } from "@/lib/prefab";
 import type { ChatMessage } from "@/lib/types";
 import { cn, getTextFromMessage, sanitizeText } from "@/lib/utils";
+import {
+  Attachment,
+  AttachmentInfo,
+  AttachmentPreview,
+} from "../ai-elements/attachments";
 import { InterruptCard } from "../ai-elements/interrupt-card";
 import {
   MessageAction,
@@ -223,17 +228,27 @@ function PreviewMessage({
     }
 
     if (type === "file") {
-      // Locally attached file (picked in the composer): show a chip — the
-      // backend only receives the bytes, not a URL.
-      if ("file" in part && part.file instanceof File) {
+      const filePart = part as unknown as FileUIPart;
+      const localFile =
+        "file" in part && part.file instanceof File ? part.file : undefined;
+      // Locally attached file (picked in the composer): show a preview chip —
+      // the backend only receives the bytes, not a URL.
+      if (localFile || filePart.filename) {
         return (
-          <div
-            className="flex w-fit max-w-56 items-center gap-1.5 rounded-lg border border-border/60 bg-muted/40 py-1 pr-2 pl-2 text-[12px] text-muted-foreground"
+          <Attachment
+            className="cursor-default hover:bg-transparent"
+            data={{
+              filename: filePart.filename ?? localFile?.name,
+              id: `file-${key}`,
+              mediaType: filePart.mediaType,
+              type: "file",
+              url: filePart.url ?? "",
+            }}
             key={key}
           >
-            <FileIcon className="size-3.5 shrink-0" />
-            <span className="truncate">{part.file.name}</span>
-          </div>
+            <AttachmentPreview />
+            <AttachmentInfo showMediaType={false} />
+          </Attachment>
         );
       }
       // Attachments sent by the backend (e.g. generated images).
