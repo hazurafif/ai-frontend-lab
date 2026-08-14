@@ -387,12 +387,20 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
   // message id until the run ends (done/interrupt/error → re-fetch history
   // once to reconcile). A 409 (run just finished) falls back to the same
   // history re-fetch.
+  // True while a manual HITL resume stream is in flight — the attach flow
+  // must not merge the same run in parallel (see attachActive below).
+  const [resumeActive, setResumeActive] = useState(false);
+
   const attachActive =
     isAuthenticated &&
     chatIdFromUrl !== null &&
     threadStatus === "running" &&
     status !== "submitted" &&
-    status !== "streaming";
+    status !== "streaming" &&
+    // A manual HITL resume owns the stream for this chat — the attach flow
+    // would merge the SAME run in parallel (raw events + AI SDK chunks →
+    // duplicated messages, frozen chat).
+    !resumeActive;
 
   useEffect(() => {
     if (!attachActive) {
@@ -640,6 +648,7 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
       const controller = new AbortController();
       const merger = new ChatStreamMerger();
       let streamError: string | null = null;
+      setResumeActive(true);
       try {
         await readSSE(
           `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/api/chat`,
@@ -685,6 +694,7 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
             error instanceof Error ? error.message : "Failed to resume the run";
         }
       } finally {
+        setResumeActive(false);
         if (chatIdRef.current === chatIdAtResume) {
           // Persist the merged conversation (the useChat status-change
           // effect never fires for this manual stream).
