@@ -118,8 +118,35 @@ export type KnowledgeBaseUploadResult = {
   error: string | null;
 };
 
+// Thinking/reasoning effort for the model. Values follow the backend's
+// agent-config `thinking` field (OpenAI reasoning-effort set: none, minimal,
+// low, medium, high, xhigh = extra high, max) — sent as `thinking` in the
+// chat body; the backend wires it into `reasoning_effort` once agent
+// configs are the source of truth.
+export type ThinkingEffort =
+  | "none"
+  | "minimal"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh"
+  | "max";
+
+export const THINKING_EFFORTS: ThinkingEffort[] = [
+  "none",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+];
+
+export const DEFAULT_THINKING_EFFORT: ThinkingEffort = "medium";
+
 export type SettingsState = {
   model: string;
+  thinkingEffort: ThinkingEffort;
   systemPrompt: string;
   interruptOn: boolean;
   searxngEnabled: boolean;
@@ -145,6 +172,7 @@ const LEGACY_MODEL_IDS: Record<string, string> = {
 
 export const DEFAULT_SETTINGS: SettingsState = {
   model: "openai:gpt-4o-mini",
+  thinkingEffort: DEFAULT_THINKING_EFFORT,
   modelConnection: null,
   systemPrompt:
     "You are a helpful AI assistant running inside a backend service. Be concise and direct.",
@@ -185,6 +213,7 @@ export function loadSettings(): SettingsState {
     return {
       ...DEFAULT_SETTINGS,
       ...parsed,
+      thinkingEffort: parsed.thinkingEffort ?? DEFAULT_SETTINGS.thinkingEffort,
       model:
         LEGACY_MODEL_IDS[parsed.model ?? ""] ??
         parsed.model ??

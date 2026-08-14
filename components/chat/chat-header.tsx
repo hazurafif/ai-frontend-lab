@@ -4,11 +4,8 @@ import { PanelLeftIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useSidebar } from "@/components/ui/sidebar";
-import { useActiveChat } from "@/hooks/use-active-chat";
 import { HISTORY_STORAGE_KEY } from "@/lib/constants";
 import type { ChatHistoryItem } from "@/lib/types";
-import { ShareIcon } from "./icons";
-import { ShareChatDialog } from "./share-dialog";
 
 function loadHistory(): ChatHistoryItem[] {
   try {
@@ -20,23 +17,15 @@ function loadHistory(): ChatHistoryItem[] {
 }
 
 function PureChatHeader({ chatId }: { chatId: string }) {
-  const { state, toggleSidebar, isMobile } = useSidebar();
-  const { messages, isLoading } = useActiveChat();
+  const { toggleSidebar } = useSidebar();
   const [title, setTitle] = useState<string | null>(null);
-  const [shareOpen, setShareOpen] = useState(false);
 
   useEffect(() => {
     setTitle(loadHistory().find((chat) => chat.id === chatId)?.title ?? null);
   }, [chatId]);
 
-  if (state === "collapsed" && !isMobile) {
-    return null;
-  }
-
-  const canShare = messages.length > 0 && !isLoading;
-
   return (
-    <header className="sticky top-0 flex h-14 items-center gap-2 bg-sidebar px-3">
+    <header className="absolute inset-x-0 top-0 z-20 flex h-14 items-center gap-2 border-b border-border/40 bg-sidebar/70 px-3 backdrop-blur-md">
       <Button
         className="md:hidden"
         onClick={toggleSidebar}
@@ -47,28 +36,14 @@ function PureChatHeader({ chatId }: { chatId: string }) {
       </Button>
 
       {title ? (
-        <div className="min-w-0 flex-1 truncate text-[13px] font-medium text-sidebar-foreground/70">
+        <div className="min-w-0 flex-1 truncate text-sm font-semibold text-sidebar-foreground">
           {title}
         </div>
       ) : (
-        <div className="flex-1" />
+        <div className="min-w-0 flex-1 truncate text-sm font-medium text-sidebar-foreground/40">
+          New chat
+        </div>
       )}
-
-      <Button
-        aria-label="Share chat"
-        disabled={!canShare}
-        onClick={() => setShareOpen(true)}
-        size="icon-sm"
-        variant="ghost"
-      >
-        <ShareIcon />
-      </Button>
-
-      <ShareChatDialog
-        chatId={chatId}
-        onOpenChange={setShareOpen}
-        open={shareOpen}
-      />
     </header>
   );
 }

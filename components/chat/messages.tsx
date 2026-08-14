@@ -10,6 +10,8 @@ import { PreviewMessage, ThinkingMessage } from "./message";
 
 type MessagesProps = {
   chatId: string;
+  /** True when ChatShell renders the centered new-chat composer (greeting + input). */
+  empty?: boolean;
   status: UseChatHelpers<ChatMessage>["status"];
   messages: ChatMessage[];
   regenerate: UseChatHelpers<ChatMessage>["regenerate"];
@@ -19,6 +21,7 @@ type MessagesProps = {
 
 function PureMessages({
   chatId,
+  empty = false,
   status,
   messages,
   regenerate,
@@ -62,7 +65,7 @@ function PureMessages({
 
   return (
     <div className="relative flex-1 bg-background">
-      {messages.length === 0 && !isLoading && (
+      {!empty && messages.length === 0 && !isLoading && (
         <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
           <Greeting />
         </div>
@@ -71,7 +74,7 @@ function PureMessages({
         className="absolute inset-0 touch-pan-y overflow-y-auto"
         ref={messagesContainerRef}
       >
-        <div className="mx-auto flex h-full max-w-4xl flex-col gap-4 px-4 pt-6 pb-2 md:px-4">
+        <div className="mx-auto flex h-full max-w-4xl flex-col gap-4 px-4 pt-14 pb-2 md:px-4">
           {messages.map((message, index) => (
             <PreviewMessage
               chatId={chatId}

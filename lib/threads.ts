@@ -53,6 +53,43 @@ export async function fetchThreads(): Promise<ServerThread[]> {
   return (await res.json()) as ServerThread[];
 }
 
+// GET /threads/{id}/usage (backend `ThreadUsageOut`): session context +
+// cumulative token usage for one thread. `context` is the last run's input
+// tokens vs the model's context window (null before the first run / when
+// the provider reports no usage / window unknown).
+export type ThreadUsage = {
+  thread_id: string;
+  agent: string | null;
+  model: string | null;
+  messages: { count: number; characters: number };
+  usage: {
+    input_tokens: number;
+    output_tokens: number;
+    total_tokens: number;
+    runs: number;
+  } | null;
+  context: {
+    current_input_tokens: number;
+    context_window: number | null;
+    utilization: number | null;
+    remaining_tokens: number | null;
+  } | null;
+  active_run: boolean;
+};
+
+/** Context + usage report of a thread; null when the thread has no report yet. */
+export async function fetchThreadUsage(
+  threadId: string,
+): Promise<ThreadUsage | null> {
+  const res = await threadFetch(
+    `/api/chat/threads/${encodeURIComponent(threadId)}/usage`,
+  );
+  if (!res.ok) {
+    return null;
+  }
+  return (await res.json()) as ThreadUsage;
+}
+
 /** Delete a thread server-side (checkpoint, history rows, metadata). */
 export async function deleteThread(threadId: string): Promise<void> {
   await threadFetch(`/api/chat/threads/${encodeURIComponent(threadId)}`, {

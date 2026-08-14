@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useActiveChat } from "@/hooks/use-active-chat";
 import type { ChatMessage } from "@/lib/types";
 import { ChatHeader } from "./chat-header";
+import { Greeting } from "./greeting";
 import { Messages } from "./messages";
 import { MultimodalInput } from "./multimodal-input";
 
@@ -21,12 +22,24 @@ export function ChatShell() {
     isLoading,
     currentModelId,
     setCurrentModelId,
+    thinkingEffort,
+    setThinkingEffort,
     editMessage,
   } = useActiveChat();
 
   const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(
     null,
   );
+
+  // Mount-gated empty-state check (hydration rule): server and the client's
+  // first render agree on the bottom-docked composer; once mounted we know
+  // whether this chat really has no messages and can center it.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const isNewChat = mounted && messages.length === 0 && !isLoading;
 
   const stopRef = useRef(stop);
   stopRef.current = stop;
@@ -68,13 +81,34 @@ export function ChatShell() {
     editMessage(messageToEdit.id, input);
   }, [editMessage, editingMessage, input, setInput]);
 
+  const composer = (
+    <MultimodalInput
+      chatId={chatId}
+      editingMessage={editingMessage}
+      input={input}
+      isLoading={isLoading}
+      messages={messages}
+      onCancelEdit={handleCancelEdit}
+      onModelChange={setCurrentModelId}
+      onThinkingEffortChange={setThinkingEffort}
+      selectedModelId={currentModelId}
+      sendMessage={editingMessage ? handleSendEditedMessage : sendMessage}
+      setInput={setInput}
+      setMessages={setMessages}
+      status={status}
+      stop={stop}
+      thinkingEffort={thinkingEffort}
+    />
+  );
+
   return (
-    <div className="flex h-dvh w-full flex-col overflow-hidden">
+    <div className="relative flex h-dvh w-full flex-col overflow-hidden">
       <ChatHeader chatId={chatId} />
 
       <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
         <Messages
           chatId={chatId}
+          empty={isNewChat}
           isLoading={isLoading}
           messages={messages}
           onEditMessage={handleEditMessage}
@@ -82,23 +116,16 @@ export function ChatShell() {
           status={status}
         />
 
-        <div className="sticky bottom-0 z-1 mx-auto flex w-full max-w-4xl gap-2 border-t-0 bg-background px-2 pb-3 md:px-4 md:pb-4">
-          <MultimodalInput
-            chatId={chatId}
-            editingMessage={editingMessage}
-            input={input}
-            isLoading={isLoading}
-            messages={messages}
-            onCancelEdit={handleCancelEdit}
-            onModelChange={setCurrentModelId}
-            selectedModelId={currentModelId}
-            sendMessage={editingMessage ? handleSendEditedMessage : sendMessage}
-            setInput={setInput}
-            setMessages={setMessages}
-            status={status}
-            stop={stop}
-          />
-        </div>
+        {isNewChat ? (
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-6 px-4">
+            <Greeting />
+            <div className="w-full max-w-4xl">{composer}</div>
+          </div>
+        ) : (
+          <div className="sticky bottom-0 z-1 mx-auto flex w-full max-w-4xl gap-2 border-t-0 bg-background px-2 pb-3 md:px-4 md:pb-4">
+            {composer}
+          </div>
+        )}
       </div>
     </div>
   );

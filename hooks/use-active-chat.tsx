@@ -27,7 +27,12 @@ import {
 } from "@/lib/constants";
 import { ChatbotError } from "@/lib/errors";
 import { DEFAULT_CHAT_MODEL } from "@/lib/models";
-import { loadSettings, saveSettings } from "@/lib/settings";
+import {
+  DEFAULT_SETTINGS,
+  loadSettings,
+  saveSettings,
+  type ThinkingEffort,
+} from "@/lib/settings";
 import {
   cancelThread,
   deleteThread,
@@ -55,6 +60,8 @@ type ActiveChatContextValue = {
   isLoading: boolean;
   currentModelId: string;
   setCurrentModelId: (id: string) => void;
+  thinkingEffort: ThinkingEffort;
+  setThinkingEffort: (effort: ThinkingEffort) => void;
   deleteChat: (chatId: string) => void;
   deleteAllChats: () => void;
   /** Resume a human-in-the-loop interrupt with a decision (approve/reject/...). */
@@ -210,6 +217,34 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
 
   const [input, setInput] = useState("");
 
+  // The thinking-effort level chosen next to the model selector. Persisted
+  // to settings and sent with every chat request as `thinking` (the backend's
+  // agent-config field name + level set).
+  const [thinkingEffort, setThinkingEffortState] = useState<ThinkingEffort>(
+    DEFAULT_SETTINGS.thinkingEffort,
+  );
+  const thinkingEffortRef = useRef(thinkingEffort);
+  useEffect(() => {
+    thinkingEffortRef.current = thinkingEffort;
+  }, [thinkingEffort]);
+
+  useEffect(() => {
+    setThinkingEffortState(loadSettings().thinkingEffort);
+    const handleSettingsChanged = () => {
+      setThinkingEffortState(loadSettings().thinkingEffort);
+    };
+    window.addEventListener(SETTINGS_CHANGED_EVENT, handleSettingsChanged);
+    return () => {
+      window.removeEventListener(SETTINGS_CHANGED_EVENT, handleSettingsChanged);
+    };
+  }, []);
+
+  // Persist picks made in the chat input so /settings reflects them too.
+  const setThinkingEffort = useCallback((effort: ThinkingEffort) => {
+    setThinkingEffortState(effort);
+    saveSettings({ ...loadSettings(), thinkingEffort: effort });
+  }, []);
+
   // Set when the user edits a past message; consumed by the transport when
   // the next request is prepared.
   const pendingEditRef = useRef<string | null>(null);
@@ -255,6 +290,7 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
               id: request.id,
               messages,
               selectedChatModel: currentModelIdRef.current,
+              thinking: thinkingEffortRef.current,
               // Web-search toggle from /settings; the backend overrides its
               // SEARXNG_ENABLED config per request (enableSearch alias).
               enableSearch: loadSettings().searxngEnabled,
@@ -423,8 +459,10 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
       setCurrentModelId,
       setInput,
       setMessages,
+      setThinkingEffort,
       status,
       stop: stopGeneration,
+      thinkingEffort,
     }),
     [
       chatId,
@@ -441,8 +479,10 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
       setCurrentModelId,
       setInput,
       setMessages,
+      setThinkingEffort,
       status,
       stopGeneration,
+      thinkingEffort,
     ],
   );
 
