@@ -1,10 +1,11 @@
 "use client";
 
-import { PencilIcon } from "lucide-react";
+import { LoaderCircleIcon, PencilIcon } from "lucide-react";
 import Link from "next/link";
 import { memo, useCallback } from "react";
 import { toast } from "@/components/chat/toast";
 import { createChatShare } from "@/lib/share";
+import type { ThreadStatus } from "@/lib/threads";
 import type { ChatHistoryItem } from "@/lib/types";
 import {
   DropdownMenu,
@@ -25,12 +26,15 @@ const PureChatItem = ({
   onDelete,
   onRename,
   setOpenMobile,
+  status = null,
 }: {
   chat: ChatHistoryItem;
   isActive: boolean;
   onDelete: (chatId: string) => void;
   onRename: (chat: ChatHistoryItem) => void;
   setOpenMobile: (open: boolean) => void;
+  /** Run status from the durable-chat store; "running" shows a spinner. */
+  status?: ThreadStatus;
 }) => {
   const closeMobile = useCallback(() => {
     setOpenMobile(false);
@@ -72,6 +76,14 @@ const PureChatItem = ({
         isActive={isActive}
         render={<Link href={`/chat/${chat.id}`} onClick={closeMobile} />}
       >
+        {status === "running" && (
+          <span
+            className="mr-1 flex size-3 shrink-0 items-center text-sidebar-foreground/50"
+            title="Answering in the background…"
+          >
+            <LoaderCircleIcon className="size-3 animate-spin" />
+          </span>
+        )}
         <span className="truncate">{chat.title}</span>
         {chat.shareToken && (
           <span
@@ -120,6 +132,9 @@ export const ChatItem = memo(PureChatItem, (prevProps, nextProps) => {
     return false;
   }
   if (prevProps.chat.shareToken !== nextProps.chat.shareToken) {
+    return false;
+  }
+  if (prevProps.status !== nextProps.status) {
     return false;
   }
   return true;

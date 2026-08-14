@@ -13,7 +13,7 @@ import {
   XIcon,
 } from "lucide-react";
 import type { FormEvent, KeyboardEvent } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getContextWindow } from "tokenlens";
 import {
   Attachment,
@@ -62,6 +62,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useAvailableModels } from "@/hooks/use-available-models";
+import { useThreads } from "@/lib/chat/chat-store";
+import { THREAD_ACTIVITY_EVENT } from "@/lib/constants";
 import { chatModelName, chatModels } from "@/lib/models";
 import {
   fetchBackendHealth,
@@ -173,17 +175,54 @@ export function MultimodalInput({
   const [modelSelectorOpen, setModelSelectorOpen] = useState(false);
   const [inputFocused, setInputFocused] = useState(false);
   const [attachments, setAttachments] = useState<File[]>([]);
+  // Run status of this thread from the durable-chat store (background runs
+  // started elsewhere — another tab, "new chat" while answering).
+  const { statuses } = useThreads();
+  const backgroundRun = !isLoading && statuses[chatId] === "running";
   // Whether the backend can execute shell commands (GET /health
   // execute.enabled, EXECUTE_ENABLED) — required for the agent to reach
   // uploaded files. null = unknown (still loading / offline → allow).
   const [executeEnabled, setExecuteEnabled] = useState<boolean | null>(null);
   // MCP tool servers connected on the backend (GET /health mcp_servers).
   const [mcpServers, setMcpServers] = useState<string[]>([]);
-  // Context window + token usage from GET /threads/{id}/usage (backend
-  // ThreadUsageOut). Refetches when the thread changes or a run settles;
-  // hidden while a run is in progress, and for new chats / guests (no
+  // Context + usage report (GET /threads/{id}/usage). Refetches when the
+  // thread changes, a run settles, or any run lifecycle event lands
+  // (THREAD_ACTIVITY_EVENT — cheap endpoint, keeps the ring and the
+  // background-run indicator current). Hidden for new chats / guests (no
   // server report yet — 404/401 → null).
   const [usage, setUsage] = useState<ThreadUsage | null>(null);
+
+  const refreshUsage = useCallback(() => {
+    if (status === "submitted" || status === "streaming") {
+      return;
+    }
+    fetchThreadUsage(chatId)
+      .then((next) => {
+        setUsage((current) =>
+          // Drop stale reports (thread switched while fetching).
+          current === null ||
+          next === null ||
+          current.thread_id === next.thread_id
+            ? next
+            : current,
+        );
+      })
+      .catch(() => {
+        // offline / no report — leave the readout hidden
+      });
+  }, [chatId, status]);
+
+  useEffect(() => {
+    setUsage(null);
+    refreshUsage();
+    const onActivity = () => {
+      refreshUsage();
+    };
+    window.addEventListener(THREAD_ACTIVITY_EVENT, onActivity);
+    return () => {
+      window.removeEventListener(THREAD_ACTIVITY_EVENT, onActivity);
+    };
+  }, [refreshUsage]);
 
   // The model context window: the backend's curated table first, tokenlens
   // as fallback (see tokenlensModelId). Null → the ring stays hidden and
@@ -223,25 +262,11 @@ export function MultimodalInput({
     };
   }, [usage?.usage]);
 
-  useEffect(() => {
-    let cancelled = false;
-    setUsage(null);
-    if (status === "submitted" || status === "streaming") {
-      return;
-    }
-    fetchThreadUsage(chatId)
-      .then((next) => {
-        if (!cancelled) {
-          setUsage(next);
-        }
-      })
-      .catch(() => {
-        // offline / no report — leave the readout hidden
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [chatId, status]);
+  // Whether a run of this thread is in flight that we are NOT streaming
+  // ourselves (started in the background): the backend 409s a second run on
+  // a thread with an active one, so sending is disabled while it lasts.
+  const runActive = backgroundRun || usage?.active_run === true;
+
   // Mount-gated platform check (hydration rule): server + first client
   // render show the macOS glyph, then flip to the Ctrl label on other OSes.
   const [isMac, setIsMac] = useState(true);
@@ -781,6 +806,16 @@ export function MultimodalInput({
               </TooltipProvider>
             )}
 
+            {runActive && (
+              <span
+                className="flex shrink-0 items-center gap-1.5 text-[11px] text-muted-foreground"
+                title="This chat is still answering in the background"
+              >
+                <span className="size-1.5 animate-pulse rounded-full bg-foreground/60" />
+                Generating…
+              </span>
+            )}
+
             {isLoading ? (
               <Button
                 aria-label="Stop generation"
@@ -795,8 +830,13 @@ export function MultimodalInput({
               <Button
                 aria-label="Send message"
                 className="bg-foreground text-background hover:bg-foreground/90"
-                disabled={!input.trim()}
+                disabled={!input.trim() || runActive}
                 size="icon-sm"
+                title={
+                  runActive
+                    ? "This chat is still answering in the background"
+                    : undefined
+                }
                 type="submit"
               >
                 <ArrowUpIcon className="size-4" />

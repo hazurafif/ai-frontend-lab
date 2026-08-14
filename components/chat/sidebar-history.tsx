@@ -33,6 +33,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { useAuth } from "@/hooks/use-auth";
+import { useThreads } from "@/lib/chat/chat-store";
 import { HISTORY_CHANGED_EVENT, HISTORY_STORAGE_KEY } from "@/lib/constants";
 import {
   deleteThread,
@@ -132,6 +133,7 @@ export function SidebarHistory({
   const pathname = usePathname();
   const router = useRouter();
   const { isAuthenticated } = useAuth();
+  const { seedThreads, statuses } = useThreads();
   const id = pathname?.startsWith("/chat/") ? pathname.split("/")[2] : null;
 
   const [history, setHistory] = useState<ChatHistoryItem[]>([]);
@@ -156,6 +158,9 @@ export function SidebarHistory({
     }
     fetchThreads()
       .then((threads) => {
+        // Keep the durable-chat store in sync (run statuses restore on
+        // reload, multi-tab resync, notification-driven refreshes).
+        seedThreads(threads);
         setHistory((current) => {
           const merged = mergeHistory(current, threads);
           saveHistory(merged);
@@ -165,7 +170,7 @@ export function SidebarHistory({
       .catch(() => {
         // offline / backend error — keep the local cache
       });
-  }, [isAuthenticated]);
+  }, [isAuthenticated, seedThreads]);
 
   useEffect(() => {
     if (!mounted) {
@@ -297,6 +302,7 @@ export function SidebarHistory({
                         onDelete={handleShowDeleteDialog}
                         onRename={handleShowRename}
                         setOpenMobile={setOpenMobile}
+                        status={statuses[chat.id] ?? null}
                       />
                     ))}
                   </div>
@@ -315,6 +321,7 @@ export function SidebarHistory({
                         onDelete={handleShowDeleteDialog}
                         onRename={handleShowRename}
                         setOpenMobile={setOpenMobile}
+                        status={statuses[chat.id] ?? null}
                       />
                     ))}
                   </div>
@@ -333,6 +340,7 @@ export function SidebarHistory({
                         onDelete={handleShowDeleteDialog}
                         onRename={handleShowRename}
                         setOpenMobile={setOpenMobile}
+                        status={statuses[chat.id] ?? null}
                       />
                     ))}
                   </div>
@@ -351,6 +359,7 @@ export function SidebarHistory({
                         onDelete={handleShowDeleteDialog}
                         onRename={handleShowRename}
                         setOpenMobile={setOpenMobile}
+                        status={statuses[chat.id] ?? null}
                       />
                     ))}
                   </div>
@@ -369,6 +378,7 @@ export function SidebarHistory({
                         onDelete={handleShowDeleteDialog}
                         onRename={handleShowRename}
                         setOpenMobile={setOpenMobile}
+                        status={statuses[chat.id] ?? null}
                       />
                     ))}
                   </div>

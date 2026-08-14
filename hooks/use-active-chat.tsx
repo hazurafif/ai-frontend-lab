@@ -19,6 +19,9 @@ import { toast } from "@/components/chat/toast";
 import { UploadChatTransport } from "@/hooks/chat-transport";
 import { useAuth } from "@/hooks/use-auth";
 import { authHeaders } from "@/lib/auth";
+import { useThreads } from "@/lib/chat/chat-store";
+import { AttachMerger, isAttachTerminalEvent } from "@/lib/chat/message-merge";
+import { readSSE } from "@/lib/chat/sse";
 import {
   CHAT_STORAGE_PREFIX,
   HISTORY_CHANGED_EVENT,
@@ -131,19 +134,39 @@ function notifyHistoryChanged() {
   window.dispatchEvent(new Event(HISTORY_CHANGED_EVENT));
 }
 
+/** First-user-text title, truncated to 40 chars. */
+function truncateTitle(text: string): string {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return "New chat";
+  }
+  return trimmed.length > 40 ? `${trimmed.slice(0, 40)}…` : trimmed;
+}
+
 function titleFromMessages(messages: ChatMessage[]): string {
   const firstUserText = messages
     .filter((m) => m.role === "user")
     .map((m) => getTextFromMessage(m).trim())
     .find((t) => t.length > 0);
 
-  if (!firstUserText) {
-    return "New chat";
-  }
+  return firstUserText ? truncateTitle(firstUserText) : "New chat";
+}
 
-  return firstUserText.length > 40
-    ? `${firstUserText.slice(0, 40)}…`
-    : firstUserText;
+/**
+ * Add a sidebar row for a thread before the backend confirms it (durable
+ * chat: the row appears the moment you hit send, marked running). No-op
+ * when the row already exists.
+ */
+function ensureHistoryRow(chatId: string, title: string) {
+  const history = loadHistory();
+  if (history.some((chat) => chat.id === chatId)) {
+    return;
+  }
+  saveHistory([
+    { id: chatId, title, createdAt: new Date().toISOString() },
+    ...history,
+  ]);
+  notifyHistoryChanged();
 }
 
 function upsertHistory(chatId: string, messages: ChatMessage[]) {
@@ -178,6 +201,7 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { isAuthenticated } = useAuth();
+  const { markThreadRunning, setActiveThreadId, statuses } = useThreads();
 
   const chatIdFromUrl = extractChatId(pathname);
   const isNewChat = !chatIdFromUrl;
@@ -195,6 +219,9 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
   prevPathnameRef.current = pathname;
 
   const chatId = chatIdFromUrl ?? newChatId;
+  // Previous active chat (for the load effect: reset on switch + detach a
+  // still-streaming fetch without cancelling its server run).
+  const prevChatIdRef = useRef(chatId);
 
   // The chat starts with the model saved in /settings; the selector in the
   // chat input overrides it per conversation. Mount-gated so the server
@@ -297,13 +324,70 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
       }),
     });
 
-  // Load persisted messages when the active chat changes. When the local
-  // cache is empty (new device / cleared cache), rehydrate the conversation
-  // from the server so history survives across browsers.
+  // The run status of the thread in the URL (absent for the ad-hoc new
+  // chat on "/"). Drives the attach stream (flow D) and the rehydrate
+  // effect below.
+  const threadStatus = chatIdFromUrl ? (statuses[chatIdFromUrl] ?? null) : null;
+
+  // Latest status, readable from callbacks without re-creating them.
+  const statusRef = useRef(status);
   useEffect(() => {
-    setMessages(loadMessages(chatId));
-    setInput("");
-    if (!chatIdFromUrl || !isAuthenticated) {
+    statusRef.current = status;
+  }, [status]);
+
+  // Durable chat (flow A): the moment a send starts, mark the thread
+  // running in the sidebar and make sure it has a history row. The backend
+  // confirms both within milliseconds (thread metadata is upserted at run
+  // start, status "running"), and the notification stream keeps statuses
+  // live from there on.
+  const sendMessageTracked = useCallback(
+    (
+      args: Parameters<UseChatHelpers<ChatMessage>["sendMessage"]>[0],
+      options?: Parameters<UseChatHelpers<ChatMessage>["sendMessage"]>[1],
+    ) => {
+      if (isAuthenticated) {
+        // The SDK's message type is a messy union — extract the sent text
+        // through a minimal structural shape.
+        const draft = args as
+          | { parts?: { text?: unknown }[]; content?: unknown }
+          | undefined;
+        const sentText =
+          (draft && Array.isArray(draft.parts)
+            ? draft.parts
+                .map((part) => (typeof part.text === "string" ? part.text : ""))
+                .join(" ")
+            : typeof draft?.content === "string"
+              ? draft.content
+              : "") || input;
+        markThreadRunning(chatId);
+        ensureHistoryRow(chatId, truncateTitle(sentText));
+      }
+      return sendMessage(args, options);
+    },
+    [chatId, input, isAuthenticated, markThreadRunning, sendMessage],
+  );
+
+  // Load persisted messages when the active chat changes; detach a still-
+  // streaming fetch when navigating away (durable chat: the run keeps going
+  // server-side, history is persisted incrementally). When the local cache
+  // is empty (new device / cleared cache), rehydrate the conversation from
+  // the server. Threads with a run in flight skip the cache path — the
+  // attach effect below owns the authoritative live baseline.
+  useEffect(() => {
+    const changed = prevChatIdRef.current !== chatId;
+    prevChatIdRef.current = chatId;
+    if (changed) {
+      // Abort-only: does NOT cancel the server run.
+      if (
+        statusRef.current === "submitted" ||
+        statusRef.current === "streaming"
+      ) {
+        stopRef.current();
+      }
+      setMessages(loadMessages(chatId));
+      setInput("");
+    }
+    if (!chatIdFromUrl || !isAuthenticated || threadStatus === "running") {
       return;
     }
     let cancelled = false;
@@ -322,7 +406,98 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [chatId, chatIdFromUrl, isAuthenticated, setMessages]);
+  }, [chatId, chatIdFromUrl, isAuthenticated, setMessages, threadStatus]);
+
+  // Durable chat (flow D): opening a thread whose run is in flight (started
+  // elsewhere — another tab, or "new chat" while answering) attaches a live
+  // stream to it. History is the authoritative baseline (the backend writes
+  // finalized messages incrementally), then message deltas merge in by
+  // message id until the run ends (done/interrupt/error → re-fetch history
+  // once to reconcile). A 409 (run just finished) falls back to the same
+  // history re-fetch.
+  const attachActive =
+    isAuthenticated &&
+    chatIdFromUrl !== null &&
+    threadStatus === "running" &&
+    status !== "submitted" &&
+    status !== "streaming";
+
+  useEffect(() => {
+    if (!attachActive) {
+      return;
+    }
+    let cancelled = false;
+    let sawTerminal = false;
+    const controller = new AbortController();
+    const merger = new AttachMerger();
+    const refetchHistory = async () => {
+      try {
+        const server = await fetchThreadMessages(chatIdFromUrl);
+        if (cancelled || !Array.isArray(server) || server.length === 0) {
+          return;
+        }
+        setMessages(serverMessagesToChatMessages(server));
+      } catch {
+        // offline — keep the merged list
+      }
+    };
+    void (async () => {
+      // Baseline: the backend writes finalized messages incrementally, so
+      // history at attach time is the authoritative starting point (the
+      // local cache may predate this run).
+      try {
+        const server = await fetchThreadMessages(chatIdFromUrl);
+        if (!cancelled && Array.isArray(server) && server.length > 0) {
+          setMessages(serverMessagesToChatMessages(server));
+        }
+      } catch {
+        // offline — attach on top of whatever we have
+      }
+      if (cancelled) {
+        return;
+      }
+      try {
+        await readSSE(
+          `/api/chat/threads/${encodeURIComponent(chatIdFromUrl)}/stream`,
+          (event, data) => {
+            if (cancelled) {
+              return;
+            }
+            if (isAttachTerminalEvent(event)) {
+              sawTerminal = true;
+              void refetchHistory();
+              return;
+            }
+            if (typeof data !== "object" || data === null) {
+              return;
+            }
+            setMessages(
+              (current) =>
+                merger.merge(current, event, data as Record<string, unknown>) ??
+                current,
+            );
+          },
+          controller.signal,
+          { headers: authHeaders() },
+        );
+      } catch {
+        // 409 (no active run) / stream error — fall through to history
+      }
+      if (!cancelled && !sawTerminal) {
+        void refetchHistory();
+      }
+    })();
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [attachActive, chatIdFromUrl, setMessages]);
+
+  // The thread the user is currently looking at — the notification store
+  // suppresses completion toasts for it (the user is watching it already).
+  useEffect(() => {
+    setActiveThreadId(chatIdFromUrl ?? newChatId);
+  }, [chatIdFromUrl, newChatId, setActiveThreadId]);
 
   // Persist messages after streaming finishes (and on any non-streaming change).
   const prevStatusRef = useRef(status);
@@ -394,6 +569,15 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
   // "/" regenerate the id in place and drop the current draft so the
   // conversation area resets immediately.
   const newChat = useCallback(() => {
+    // Abort the fetch WITHOUT cancelling the run (durable chat): the run
+    // finishes server-side, history is persisted incrementally, and the
+    // thread keeps its running spinner until the completion notification.
+    if (
+      statusRef.current === "submitted" ||
+      statusRef.current === "streaming"
+    ) {
+      stopRef.current();
+    }
     if (chatIdFromUrl) {
       router.push("/");
       return;
@@ -449,12 +633,12 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
         const index = current.findIndex((m) => m.id === originalMessageId);
         return index === -1 ? current : current.slice(0, index);
       });
-      sendMessage({
+      sendMessageTracked({
         parts: [{ text: newText, type: "text" }],
         role: "user",
       });
     },
-    [sendMessage, setMessages],
+    [sendMessageTracked, setMessages],
   );
 
   // Resume a human-in-the-loop interrupt: truncate the interrupted assistant
@@ -482,7 +666,7 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
       regenerate,
       resumeInterrupt,
       rewindMessage,
-      sendMessage,
+      sendMessage: sendMessageTracked,
       setCurrentModelId,
       setInput,
       setMessages,
@@ -504,7 +688,7 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
       regenerate,
       resumeInterrupt,
       rewindMessage,
-      sendMessage,
+      sendMessageTracked,
       setCurrentModelId,
       setInput,
       setMessages,

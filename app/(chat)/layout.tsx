@@ -1,12 +1,14 @@
 import { cookies } from "next/headers";
 import { Suspense } from "react";
-import { Toaster } from "sonner";
 import { AuthGate } from "@/components/auth/auth-gate";
 import { AppSidebar } from "@/components/chat/app-sidebar";
 import { ChatShellRoute } from "@/components/chat/shell-route";
 import { SettingsTabsProvider } from "@/components/settings/settings-tabs-context";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
+import { Toaster } from "@/components/ui/sonner";
 import { ActiveChatProvider } from "@/hooks/use-active-chat";
+import { ThreadsProvider } from "@/lib/chat/chat-store";
+import { NotificationListener } from "@/lib/chat/notification-stream";
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   return (
@@ -28,23 +30,20 @@ async function SidebarShell({ children }: { children: React.ReactNode }) {
   return (
     <SidebarProvider defaultOpen={!isCollapsed}>
       <SettingsTabsProvider>
-        <ActiveChatProvider>
-          <AppSidebar />
-          <SidebarInset>
-            <Toaster
-              position="top-center"
-              theme="system"
-              toastOptions={{
-                className:
-                  "!bg-card !text-foreground !border-border/50 !shadow-[var(--shadow-float)]",
-              }}
-            />
-            <Suspense fallback={<div className="flex h-dvh" />}>
-              <ChatShellRoute />
-            </Suspense>
-            {children}
-          </SidebarInset>
-        </ActiveChatProvider>
+        <ThreadsProvider>
+          <ActiveChatProvider>
+            <AppSidebar />
+            <SidebarInset>
+              <Toaster position="top-center" />
+              <Suspense fallback={<div className="flex h-dvh" />}>
+                <ChatShellRoute />
+              </Suspense>
+              {children}
+            </SidebarInset>
+          </ActiveChatProvider>
+          {/* One run-lifecycle SSE connection per user (guests skip it). */}
+          <NotificationListener />
+        </ThreadsProvider>
       </SettingsTabsProvider>
     </SidebarProvider>
   );

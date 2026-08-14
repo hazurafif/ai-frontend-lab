@@ -18,3 +18,13 @@ export const HISTORY_CHANGED_EVENT = "chat-history-updated";
 // Fired on window whenever settings are saved, so live consumers (the chat
 // input's model selector) can pick up changes without a page reload.
 export const SETTINGS_CHANGED_EVENT = "app-settings-updated";
+
+// Fired on window whenever a run lifecycle event lands for any thread
+// (notification stream, attach-stream terminal) — live consumers (the usage
+// widget) refresh cheap state without a full page reload.
+export const THREAD_ACTIVITY_EVENT = "chat-thread-activity";
+
+// localStorage key prefix for the notification-stream cursor (last seen
+// event seq), per user: `app-notification-seq:<username>`. Passed as
+// `?since=` on reconnect so missed events are replayed, not lost.
+export const NOTIFICATION_SEQ_PREFIX = "app-notification-seq:";

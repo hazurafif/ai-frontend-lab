@@ -1,75 +1,35 @@
 "use client";
 
-import { type ReactNode, useEffect, useRef, useState } from "react";
-import { toast as sonnerToast } from "sonner";
-import { cn } from "@/lib/utils";
-import { CheckCircleFillIcon, WarningIcon } from "./icons";
+// App toast helper on top of sonner's native API (the shadcn sonner
+// component styles the Toaster — bg-popover, border, muted description,
+// primary action button). Keeps the call sites' `{description, type, ...}`
+// shape while rendering canonical sonner toasts:
+//   toast({ type: "error", description: "…" })            → message-only
+//   toast({ type: "success", title: "…", description: "…" }) → title + description
 
-const iconsByType: Record<"success" | "error", ReactNode> = {
-  error: <WarningIcon />,
-  success: <CheckCircleFillIcon />,
-};
-
-export function toast(props: Omit<ToastProps, "id">) {
-  return sonnerToast.custom((id) => (
-    <Toast description={props.description} id={id} type={props.type} />
-  ));
-}
-
-function Toast(props: ToastProps) {
-  const { id, type, description } = props;
-
-  const descriptionRef = useRef<HTMLDivElement>(null);
-  const [multiLine, setMultiLine] = useState(false);
-
-  useEffect(() => {
-    const el = descriptionRef.current;
-    if (!el) {
-      return;
-    }
-
-    const update = () => {
-      const lineHeight = Number.parseFloat(getComputedStyle(el).lineHeight);
-      const lines = Math.round(el.scrollHeight / lineHeight);
-      setMultiLine(lines > 1);
-    };
-
-    update();
-    const ro = new ResizeObserver(update);
-    ro.observe(el);
-
-    return () => ro.disconnect();
-  }, []);
-
-  return (
-    <div className="flex toast-mobile:w-[356px] w-full justify-center">
-      <div
-        className={cn(
-          "flex toast-mobile:w-fit w-full flex-row gap-3 rounded-lg bg-card border border-border/50 shadow-[var(--shadow-float)] p-3",
-          multiLine ? "items-start" : "items-center",
-        )}
-        data-testid="toast"
-        key={id}
-      >
-        <div
-          className={cn(
-            "data-[type=error]:text-red-600 data-[type=success]:text-green-600",
-            { "pt-1": multiLine },
-          )}
-          data-type={type}
-        >
-          {iconsByType[type]}
-        </div>
-        <div className="text-sm text-foreground" ref={descriptionRef}>
-          {description}
-        </div>
-      </div>
-    </div>
-  );
-}
+import { type ExternalToast, toast as sonnerToast } from "sonner";
 
 type ToastProps = {
-  id: string | number;
   type: "success" | "error";
   description: string;
+  /** Optional bold heading above the description. */
+  title?: string;
+  /** Optional trailing action (e.g. "Open" for completion notifications). */
+  action?: { label: string; onClick: () => void };
 };
+
+export function toast(props: ToastProps) {
+  const options: ExternalToast = {};
+  if (props.title !== undefined) {
+    options.description = props.description;
+  }
+  if (props.action) {
+    options.action = props.action;
+  }
+  const message = props.title ?? props.description;
+  if (props.type === "error") {
+    sonnerToast.error(message, options);
+  } else {
+    sonnerToast.success(message, options);
+  }
+}
