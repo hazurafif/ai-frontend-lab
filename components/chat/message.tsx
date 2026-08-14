@@ -296,13 +296,6 @@ function PreviewMessage({
           )}
         </MessageActions>
       )}
-      {isUser && (
-        <MessageActions className="pt-1 opacity-0 transition-opacity group-hover/message:opacity-100">
-          <MessageAction label="Copy" onClick={handleCopy} tooltip="Copy">
-            <CopyIcon />
-          </MessageAction>
-        </MessageActions>
-      )}
     </>
   );
 
@@ -317,7 +310,9 @@ function PreviewMessage({
     >
       <div
         className={cn(
-          isUser ? "flex flex-col items-end gap-2" : "flex items-start gap-3",
+          isUser
+            ? "flex items-end justify-end gap-1.5"
+            : "flex items-start gap-3",
         )}
       >
         {isAssistant && (
@@ -330,7 +325,14 @@ function PreviewMessage({
         {isAssistant ? (
           <div className="flex min-w-0 flex-1 flex-col gap-2">{content}</div>
         ) : (
-          content
+          <>
+            <div className="flex min-w-0 flex-col items-end gap-2">{parts}</div>
+            <MessageActions className="pb-0.5 opacity-0 transition-opacity group-hover/message:opacity-100">
+              <MessageAction label="Copy" onClick={handleCopy} tooltip="Copy">
+                <CopyIcon />
+              </MessageAction>
+            </MessageActions>
+          </>
         )}
       </div>
     </div>
