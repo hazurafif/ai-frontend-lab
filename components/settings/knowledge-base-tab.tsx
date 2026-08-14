@@ -589,7 +589,7 @@ export function KnowledgeBaseTab({
           }
         }}
       >
-        <DialogContent className="max-h-[85dvh] overflow-y-auto">
+        <DialogContent className="sm:max-w-2xl max-h-[85dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               {isEditingExisting ? "Edit knowledge base" : "New knowledge base"}

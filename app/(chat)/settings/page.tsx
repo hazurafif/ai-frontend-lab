@@ -30,15 +30,6 @@ import { UsersTab } from "@/components/settings/users-tab";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-  Combobox,
-  ComboboxContent,
-  ComboboxInput,
-  ComboboxItem,
-  ComboboxList,
-  ComboboxTrigger,
-  ComboboxValue,
-} from "@/components/ui/combobox";
-import {
   Dialog,
   DialogContent,
   DialogFooter,
@@ -392,7 +383,7 @@ function SkillsTab({
           }
         }}
       >
-        <DialogContent className="max-h-[85dvh] overflow-y-auto">
+        <DialogContent className="sm:max-w-2xl max-h-[85dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               {settings.skills.some((s) => s.name === editing?.name)
@@ -739,7 +730,7 @@ function ToolsTab({
           }
         }}
       >
-        <DialogContent>
+        <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>
               {settings.tools.some((t) => t.name === editing?.name)
@@ -773,7 +764,7 @@ function ToolsTab({
             </Field>
             <Field>
               <FieldLabel htmlFor="tool-transport">Transport</FieldLabel>
-              <Combobox
+              <Select
                 value={draft?.transport ?? "streamable_http"}
                 onValueChange={(value) => {
                   if (value === null) {
@@ -789,20 +780,17 @@ function ToolsTab({
                   );
                 }}
               >
-                <ComboboxTrigger>
-                  <ComboboxValue />
-                </ComboboxTrigger>
-                <ComboboxContent>
-                  <ComboboxInput placeholder="Search transport…" />
-                  <ComboboxList>
-                    {TOOL_TRANSPORTS.map((transport) => (
-                      <ComboboxItem key={transport} value={transport}>
-                        {transport}
-                      </ComboboxItem>
-                    ))}
-                  </ComboboxList>
-                </ComboboxContent>
-              </Combobox>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {TOOL_TRANSPORTS.map((transport) => (
+                    <SelectItem key={transport} value={transport}>
+                      {transport}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </Field>
             <Field>
               <FieldLabel htmlFor="tool-url">URL</FieldLabel>

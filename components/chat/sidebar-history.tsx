@@ -406,7 +406,7 @@ export function SidebarHistory({
         }}
         open={renameTarget !== null}
       >
-        <DialogContent>
+        <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>Rename chat</DialogTitle>
             <DialogDescription>
