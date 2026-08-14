@@ -1,11 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 export function useScrollToBottom() {
-  const containerRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const isAtBottomRef = useRef(true);
   const isUserScrollingRef = useRef(false);
+  // The chat tree is mount-gated (hydration rule), so the first render's
+  // container is a placeholder that gets replaced by the real scroller.
+  // Track the mounted element through a callback ref so the scroll/observer
+  // listeners re-attach to the real container when it appears.
+  const [containerEl, setContainerEl] = useState<HTMLDivElement | null>(null);
+
+  const setContainerRef = useCallback((el: HTMLDivElement | null) => {
+    containerRef.current = el;
+    setContainerEl(el);
+  }, []);
 
   useEffect(() => {
     isAtBottomRef.current = isAtBottom;
@@ -30,10 +40,10 @@ export function useScrollToBottom() {
   }, []);
 
   useEffect(() => {
-    const container = containerRef.current;
-    if (!container) {
+    if (!containerEl) {
       return;
     }
+    const container = containerEl;
 
     let scrollTimeout: ReturnType<typeof setTimeout>;
 
@@ -55,13 +65,13 @@ export function useScrollToBottom() {
       container.removeEventListener("scroll", handleScroll);
       clearTimeout(scrollTimeout);
     };
-  }, [checkIfAtBottom]);
+  }, [checkIfAtBottom, containerEl]);
 
   useEffect(() => {
-    const container = containerRef.current;
-    if (!container) {
+    if (!containerEl) {
       return;
     }
+    const container = containerEl;
 
     const scrollIfNeeded = () => {
       if (isAtBottomRef.current && !isUserScrollingRef.current) {
@@ -94,7 +104,7 @@ export function useScrollToBottom() {
       mutationObserver.disconnect();
       resizeObserver.disconnect();
     };
-  }, []);
+  }, [containerEl]);
 
   function onViewportEnter() {
     setIsAtBottom(true);
@@ -113,7 +123,7 @@ export function useScrollToBottom() {
   }, []);
 
   return {
-    containerRef,
+    containerRef: setContainerRef,
     endRef,
     isAtBottom,
     onViewportEnter,
