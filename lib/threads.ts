@@ -10,6 +10,15 @@ import { fetchWithAuth } from "@/lib/auth";
 import type { ChatMessage } from "@/lib/types";
 import { generateUUID } from "@/lib/utils";
 
+/** Run status of a thread (backend ThreadOut.status; null pre-tracking). */
+export type ThreadStatus =
+  | "running"
+  | "completed"
+  | "interrupted"
+  | "cancelled"
+  | "failed"
+  | null;
+
 export type ServerThread = {
   thread_id: string;
   title: string;
@@ -17,6 +26,8 @@ export type ServerThread = {
   updated_at: string | null;
   /** Public share token; present when the thread has a share link. */
   share_token?: string | null;
+  /** Run status; "running" while a run is in flight (durable chat). */
+  status?: ThreadStatus;
 };
 
 async function threadFetch(
@@ -53,6 +64,32 @@ export async function fetchThreads(): Promise<ServerThread[]> {
   return (await res.json()) as ServerThread[];
 }
 
+/** A run lifecycle event (notification stream + recent list). */
+export type ThreadNotification = {
+  event_id: string;
+  /** Per-user monotonic counter; the `since` cursor for reconnecting. */
+  seq: number;
+  type:
+    | "run_started"
+    | "run_completed"
+    | "run_interrupted"
+    | "run_cancelled"
+    | "run_failed";
+  thread_id: string;
+  title: string | null;
+  agent: string | null;
+  status: string | null;
+  at: string | null;
+};
+
+/** The user's most recent run lifecycle events, newest first. */
+export async function fetchNotifications(
+  limit = 50,
+): Promise<ThreadNotification[]> {
+  const res = await threadFetch(`/api/chat/notifications?limit=${limit}`);
+  return (await res.json()) as ThreadNotification[];
+}
+
 // GET /threads/{id}/usage (backend `ThreadUsageOut`): session context +
 // cumulative token usage for one thread. `context` is the last run's input
 // tokens vs the model's context window (null before the first run / when
@@ -67,6 +104,15 @@ export type ThreadUsage = {
     output_tokens: number;
     total_tokens: number;
     runs: number;
+  } | null;
+  /** Estimated API cost of the cumulative usage; null when the model's
+   * pricing is unknown to the backend. */
+  cost: {
+    currency: string;
+    input_cost: number;
+    output_cost: number;
+    total_cost: number;
+    pricing: { input_per_million: number; output_per_million: number };
   } | null;
   context: {
     current_input_tokens: number;
@@ -168,7 +214,7 @@ export type ServerMessage = {
   additional_kwargs?: Record<string, unknown>;
 };
 
-function contentToText(content: unknown): string {
+export function contentToText(content: unknown): string {
   if (typeof content === "string") {
     return content;
   }
@@ -228,6 +274,54 @@ function reasoningFromMessage(msg: ServerMessage): string {
 }
 
 /**
+ * Convert one persisted backend message to a UIMessage. Tool results are
+ * resolved from the caller-supplied `toolOutputs` map (tool_call_id → text).
+ * Returns null for messages the UI cannot render (tool/system messages —
+ * tool messages are folded into their ai message's tool parts by the
+ * caller).
+ */
+export function serverMessageToChatMessage(
+  msg: ServerMessage,
+  toolOutputs: ReadonlyMap<string, string>,
+): ChatMessage | null {
+  if (msg.type === "human") {
+    return {
+      id: generateUUID(),
+      role: "user",
+      parts: [{ type: "text", text: contentToText(msg.content) }],
+    };
+  }
+  if (msg.type !== "ai") {
+    return null;
+  }
+  const parts: ChatMessage["parts"] = [];
+  const reasoning = reasoningFromMessage(msg);
+  if (reasoning) {
+    parts.push({ type: "reasoning", text: reasoning });
+  }
+  const text = contentToText(msg.content);
+  if (text) {
+    parts.push({ type: "text", text });
+  }
+  for (const call of msg.tool_calls ?? []) {
+    const toolCallId = call.id ?? generateUUID();
+    const output = toolOutputs.get(toolCallId);
+    // The SDK's tool part union is keyed by a typed tools map; the app
+    // renders these via ToolCard's own ToolUIPart shape (see message.tsx),
+    // so cast the dynamic tool name through the SDK type.
+    parts.push({
+      type: `tool-${call.name ?? "unknown"}`,
+      toolCallId,
+      toolName: call.name ?? "unknown",
+      state: output !== undefined ? "output-available" : "input-available",
+      input: call.args ?? {},
+      ...(output !== undefined ? { output } : {}),
+    } as unknown as ChatMessage["parts"][number]);
+  }
+  return { id: generateUUID(), role: "assistant", parts };
+}
+
+/**
  * Convert persisted backend messages to UIMessages so a conversation can be
  * rehydrated from the server (new device / cleared cache). Tool results are
  * matched to their tool calls by `tool_call_id`; messages the UI cannot
@@ -245,40 +339,10 @@ export function serverMessagesToChatMessages(
 
   const messages: ChatMessage[] = [];
   for (const msg of server) {
-    if (msg.type === "human") {
-      messages.push({
-        id: generateUUID(),
-        role: "user",
-        parts: [{ type: "text", text: contentToText(msg.content) }],
-      });
-    } else if (msg.type === "ai") {
-      const parts: ChatMessage["parts"] = [];
-      const reasoning = reasoningFromMessage(msg);
-      if (reasoning) {
-        parts.push({ type: "reasoning", text: reasoning });
-      }
-      const text = contentToText(msg.content);
-      if (text) {
-        parts.push({ type: "text", text });
-      }
-      for (const call of msg.tool_calls ?? []) {
-        const toolCallId = call.id ?? generateUUID();
-        const output = toolOutputs.get(toolCallId);
-        // The SDK's tool part union is keyed by a typed tools map; the app
-        // renders these via ToolCard's own ToolUIPart shape (see message.tsx),
-        // so cast the dynamic tool name through the SDK type.
-        parts.push({
-          type: `tool-${call.name ?? "unknown"}`,
-          toolCallId,
-          toolName: call.name ?? "unknown",
-          state: output !== undefined ? "output-available" : "input-available",
-          input: call.args ?? {},
-          ...(output !== undefined ? { output } : {}),
-        } as unknown as ChatMessage["parts"][number]);
-      }
-      messages.push({ id: generateUUID(), role: "assistant", parts });
+    const converted = serverMessageToChatMessage(msg, toolOutputs);
+    if (converted) {
+      messages.push(converted);
     }
-    // "tool" messages are folded into the preceding ai message's tool parts.
   }
   return messages;
 }
