@@ -17,6 +17,7 @@ type MessagesProps = {
   regenerate: UseChatHelpers<ChatMessage>["regenerate"];
   isLoading?: boolean;
   onEditMessage?: (message: ChatMessage) => void;
+  onRewind?: (message: ChatMessage) => void;
 };
 
 function PureMessages({
@@ -27,6 +28,7 @@ function PureMessages({
   regenerate,
   isLoading,
   onEditMessage,
+  onRewind,
 }: MessagesProps) {
   const {
     containerRef: messagesContainerRef,
@@ -84,6 +86,7 @@ function PureMessages({
               message={message}
               onEdit={onEditMessage}
               onRegenerate={regenerate}
+              onRewind={onRewind}
               status={status}
             />
           ))}

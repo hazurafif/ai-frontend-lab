@@ -8,6 +8,7 @@ import {
   FileIcon,
   Loader2Icon,
   RefreshCwIcon,
+  RotateCcwIcon,
 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
@@ -118,6 +119,7 @@ function PreviewMessage({
   status,
   onEdit,
   onRegenerate,
+  onRewind,
 }: {
   chatId: string;
   message: ChatMessage;
@@ -126,9 +128,29 @@ function PreviewMessage({
   status: UseChatHelpers<ChatMessage>["status"];
   onEdit?: (message: ChatMessage) => void;
   onRegenerate?: UseChatHelpers<ChatMessage>["regenerate"];
+  onRewind?: (message: ChatMessage) => void;
 }) {
   const isUser = message.role === "user";
   const isAssistant = message.role === "assistant";
+
+  // Sent time for the user message footer. The backend doesn't emit per-
+  // message timestamps, so metadata.createdAt is only present for locally
+  // stamped messages; otherwise fall back to the render time (stable per
+  // message via the id-keyed memo).
+  const sentAt = useMemo(() => {
+    if (!isUser) {
+      return null;
+    }
+    const iso = message.metadata?.createdAt;
+    const date = iso ? new Date(iso) : new Date();
+    if (Number.isNaN(date.getTime())) {
+      return null;
+    }
+    return date.toLocaleTimeString([], {
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  }, [isUser, message.id, message.metadata?.createdAt]);
 
   const hasAnyContent = message.parts?.some(
     (part) =>
@@ -331,12 +353,29 @@ function PreviewMessage({
         ) : (
           <>
             {parts}
-            {/* MessageFooter pattern: actions below the bubble, aligned to
-                its right edge (px-3.5 matches the bubble's padding). */}
-            <MessageActions className="w-full justify-end px-3.5 pb-0.5 opacity-0 transition-opacity group-hover/message:opacity-100">
-              <MessageAction label="Copy" onClick={handleCopy} tooltip="Copy">
-                <CopyIcon />
-              </MessageAction>
+            {/* MessageFooter pattern: time + actions below the bubble,
+                aligned to its right edge (px-3.5 matches the bubble's
+                padding). Time always visible; icons on hover. */}
+            <MessageActions className="w-full justify-end gap-2 px-3.5 pb-0.5">
+              {sentAt && (
+                <span className="text-[11px] tabular-nums text-muted-foreground">
+                  {sentAt}
+                </span>
+              )}
+              <span className="flex items-center gap-1 opacity-0 transition-opacity group-hover/message:opacity-100">
+                {onRewind && (
+                  <MessageAction
+                    label="Rewind"
+                    onClick={() => onRewind(message)}
+                    tooltip="Rewind"
+                  >
+                    <RotateCcwIcon />
+                  </MessageAction>
+                )}
+                <MessageAction label="Copy" onClick={handleCopy} tooltip="Copy">
+                  <CopyIcon />
+                </MessageAction>
+              </span>
             </MessageActions>
           </>
         )}

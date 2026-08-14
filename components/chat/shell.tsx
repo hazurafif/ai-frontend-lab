@@ -26,6 +26,7 @@ export function ChatShell() {
     thinkingEffort,
     setThinkingEffort,
     editMessage,
+    rewindMessage,
   } = useActiveChat();
 
   const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(
@@ -113,6 +114,7 @@ export function ChatShell() {
           isLoading={isLoading}
           messages={messages}
           onEditMessage={handleEditMessage}
+          onRewind={(message) => rewindMessage(message.id)}
           regenerate={regenerate}
           status={status}
         />

@@ -55,6 +55,8 @@ type ActiveChatContextValue = {
   status: UseChatHelpers<ChatMessage>["status"];
   stop: UseChatHelpers<ChatMessage>["stop"];
   regenerate: UseChatHelpers<ChatMessage>["regenerate"];
+  /** Rewind to a past user message: drop it + everything after, restore its text in the input. */
+  rewindMessage: (messageId: string) => void;
   input: string;
   setInput: Dispatch<SetStateAction<string>>;
   isLoading: boolean;
@@ -412,14 +414,24 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
 
   const isLoading = status === "submitted" || status === "streaming";
 
-  // Resume a human-in-the-loop interrupt: truncate the interrupted assistant
-  // message and re-request. The transport merges `decision` into the request
-  // body; the backend sees it and resumes the paused thread.
-  const resumeInterrupt = useCallback(
-    (messageId: string, decision: Record<string, unknown>) => {
-      regenerate({ messageId, body: { decision } });
+  // Rewind to a past user message: drop it and everything after it, and
+  // put its text back into the input so the user can rephrase and resend.
+  // The next send carries the truncated message list, so the backend
+  // thread follows the same state (same mechanism as edits).
+  const rewindMessage = useCallback(
+    (messageId: string) => {
+      const index = messages.findIndex((m) => m.id === messageId);
+      if (index === -1) {
+        return;
+      }
+      const text = getTextFromMessage(messages[index]);
+      if (text) {
+        setInput(text);
+      }
+      stopRef.current();
+      setMessages(messages.slice(0, index));
     },
-    [regenerate],
+    [messages, setInput, setMessages],
   );
 
   // Edit a past user message: truncate the conversation at that point and
@@ -443,6 +455,16 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
     [sendMessage, setMessages],
   );
 
+  // Resume a human-in-the-loop interrupt: truncate the interrupted assistant
+  // message and re-request. The transport merges `decision` into the request
+  // body; the backend sees it and resumes the paused thread.
+  const resumeInterrupt = useCallback(
+    (messageId: string, decision: Record<string, unknown>) => {
+      regenerate({ messageId, body: { decision } });
+    },
+    [regenerate],
+  );
+
   const value = useMemo<ActiveChatContextValue>(
     () => ({
       chatId,
@@ -455,6 +477,7 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
       messages,
       regenerate,
       resumeInterrupt,
+      rewindMessage,
       sendMessage,
       setCurrentModelId,
       setInput,
@@ -475,6 +498,7 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
       messages,
       regenerate,
       resumeInterrupt,
+      rewindMessage,
       sendMessage,
       setCurrentModelId,
       setInput,
