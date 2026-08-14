@@ -355,14 +355,14 @@ function PreviewMessage({
             {parts}
             {/* MessageFooter pattern: time + actions below the bubble,
                 aligned to its right edge (px-3.5 matches the bubble's
-                padding). Time always visible; icons on hover. */}
-            <MessageActions className="w-full justify-end gap-2 px-3.5 pb-0.5">
+                padding). Revealed on hover, like the actions. */}
+            <MessageActions className="w-full justify-end gap-2 px-3.5 pb-0.5 opacity-0 transition-opacity group-hover/message:opacity-100">
               {sentAt && (
                 <span className="text-[11px] tabular-nums text-muted-foreground">
                   {sentAt}
                 </span>
               )}
-              <span className="flex items-center gap-1 opacity-0 transition-opacity group-hover/message:opacity-100">
+              <span className="flex items-center gap-1">
                 {onRewind && (
                   <MessageAction
                     label="Rewind"
