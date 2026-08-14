@@ -72,14 +72,14 @@ function ReasoningBlock({
           Thinking
         </span>
         {isStreaming && (
-          <Badge className="ml-auto" variant="secondary">
+          <Badge variant="secondary">
             <Loader2Icon className="animate-spin" />
             Thinking…
           </Badge>
         )}
         <ChevronDownIcon
           className={cn(
-            "size-3.5 shrink-0 text-muted-foreground transition-transform",
+            "ml-auto size-3.5 shrink-0 text-muted-foreground transition-transform",
             (open || isStreaming) && "rotate-180",
           )}
         />
