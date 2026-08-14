@@ -176,6 +176,10 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
 
   const chatId = chatIdFromUrl ?? newChatIdRef.current;
 
+  // The chat starts with the model saved in /settings; the selector in the
+  // chat input overrides it per conversation. Mount-gated so the server
+  // render (default model) matches the client's first render — the saved
+  // model is applied in the effect below (see settings-change subscription).
   const [currentModelId, setCurrentModelIdState] = useState(DEFAULT_CHAT_MODEL);
   const currentModelIdRef = useRef(currentModelId);
   useEffect(() => {

@@ -31,9 +31,19 @@ export const chatModels: ChatModel[] = [
     id: "google_genai:gemini-2.5-flash",
     name: "Gemini 2.5 Flash",
   },
+  {
+    // Backend DEEPAGENTS_MODEL default (GET /health → model).
+    description: "Backend default — fast reasoning at low cost",
+    id: "openai:deepseek-v4-flash",
+    name: "DeepSeek V4 Flash",
+  },
 ];
 
-export function getChatModel(id: string): ChatModel | undefined {
+// Resolves a model id to its entry, or undefined when the id is not in the
+// preset list (e.g. a model id the backend reported that the UI doesn't
+// know). Callers must render the raw id in that case instead of falling
+// back to a wrong preset entry.
+export function findChatModel(id: string): ChatModel | undefined {
   return chatModels.find((model) => model.id === id);
 }
 
@@ -41,5 +51,5 @@ export function getChatModel(id: string): ChatModel | undefined {
 // backend reports but the frontend does not know (e.g. a DEEPAGENTS_MODEL
 // configured outside the built-in list).
 export function chatModelName(id: string): string {
-  return getChatModel(id)?.name ?? id;
+  return findChatModel(id)?.name ?? id;
 }
