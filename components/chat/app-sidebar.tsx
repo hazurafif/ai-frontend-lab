@@ -21,7 +21,7 @@ import { toast } from "sonner";
 import { SidebarHistory } from "@/components/chat/sidebar-history";
 import {
   type SettingsTabId,
-  settingsTabsForRole,
+  settingsCategoriesForRole,
   useSettingsTabs,
 } from "@/components/settings/settings-tabs-context";
 import { Button } from "@/components/ui/button";
@@ -37,11 +37,13 @@ import {
   SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
+  SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
+  SidebarSeparator,
   SidebarTrigger,
   useSidebar,
 } from "@/components/ui/sidebar";
@@ -94,7 +96,7 @@ export function AppSidebar() {
   // On /settings the sidebar becomes the settings navigation instead of the
   // chat history — the settings page renders its content in the main area.
   const isSettings = pathname.startsWith("/settings");
-  const settingsTabs = settingsTabsForRole(user?.role);
+  const settingsCategories = settingsCategoriesForRole(user?.role);
 
   const handleTabSelect = useCallback(
     (tab: SettingsTabId) => {
@@ -196,38 +198,54 @@ export function AppSidebar() {
         </SidebarHeader>
         <SidebarContent>
           {isSettings ? (
-            <SidebarGroup className="pt-1">
-              <SidebarGroupContent>
-                <SidebarMenu>
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      className="h-8 rounded-lg border border-sidebar-border text-[13px] text-sidebar-foreground/70 transition-colors duration-150 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
-                      onClick={handleNewChat}
-                      tooltip="Back to chat"
-                    >
-                      <MessageSquareIcon className="size-4" />
-                      <span className="font-medium">Back to chat</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                  {settingsTabs.map((tab) => {
-                    const Icon = tab.icon;
-                    return (
-                      <SidebarMenuItem key={tab.id}>
-                        <SidebarMenuButton
-                          className="h-8 rounded-lg text-[13px] text-sidebar-foreground/60 transition-colors duration-150 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground data-active:bg-sidebar-accent/80 data-active:text-sidebar-accent-foreground"
-                          isActive={activeTab === tab.id}
-                          onClick={() => handleTabSelect(tab.id)}
-                          tooltip={tab.label}
-                        >
-                          <Icon className="size-4" />
-                          <span>{tab.label}</span>
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
-                    );
-                  })}
-                </SidebarMenu>
-              </SidebarGroupContent>
-            </SidebarGroup>
+            <>
+              <SidebarGroup className="pt-1">
+                <SidebarGroupContent>
+                  <SidebarMenu>
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
+                        className="h-8 rounded-lg border border-sidebar-border text-[13px] text-sidebar-foreground/70 transition-colors duration-150 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+                        onClick={handleNewChat}
+                        tooltip="Back to chat"
+                      >
+                        <MessageSquareIcon className="size-4" />
+                        <span className="font-medium">Back to chat</span>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  </SidebarMenu>
+                </SidebarGroupContent>
+              </SidebarGroup>
+
+              <SidebarSeparator className="mx-1" />
+
+              {settingsCategories.map((category) => (
+                <SidebarGroup key={category.id} className="pt-1">
+                  <SidebarGroupLabel className="px-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-sidebar-foreground/50">
+                    {category.label}
+                  </SidebarGroupLabel>
+                  <SidebarGroupContent>
+                    <SidebarMenu>
+                      {category.tabs.map((tab) => {
+                        const Icon = tab.icon;
+                        return (
+                          <SidebarMenuItem key={tab.id}>
+                            <SidebarMenuButton
+                              className="h-8 rounded-lg text-[13px] text-sidebar-foreground/60 transition-colors duration-150 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground data-active:bg-sidebar-accent/80 data-active:text-sidebar-accent-foreground"
+                              isActive={activeTab === tab.id}
+                              onClick={() => handleTabSelect(tab.id)}
+                              tooltip={tab.label}
+                            >
+                              <Icon className="size-4" />
+                              <span>{tab.label}</span>
+                            </SidebarMenuButton>
+                          </SidebarMenuItem>
+                        );
+                      })}
+                    </SidebarMenu>
+                  </SidebarGroupContent>
+                </SidebarGroup>
+              ))}
+            </>
           ) : (
             <>
               <SidebarGroup className="pt-1">
@@ -281,7 +299,7 @@ export function AppSidebar() {
                 }}
                 open={searchOpen}
               >
-                <DialogContent className="max-w-lg">
+                <DialogContent className="sm:max-w-2xl">
                   <DialogHeader>
                     <DialogTitle>Search chats</DialogTitle>
                   </DialogHeader>

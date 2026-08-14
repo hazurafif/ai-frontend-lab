@@ -37,6 +37,31 @@ export const SETTINGS_TABS: SettingsTab[] = [
   { id: "users", label: "Users", icon: UsersIcon },
 ];
 
+// Settings sidebar sections: labeled groups around the tab list.
+export type SettingsTabCategory = {
+  id: string;
+  label: string;
+  tabIds: SettingsTabId[];
+};
+
+export const SETTINGS_TAB_CATEGORIES: SettingsTabCategory[] = [
+  {
+    id: "preferences",
+    label: "Preferences",
+    tabIds: ["general", "model"],
+  },
+  {
+    id: "agent",
+    label: "Agent",
+    tabIds: ["skills", "tools", "knowledge-base"],
+  },
+  {
+    id: "account",
+    label: "Account",
+    tabIds: ["account", "users"],
+  },
+];
+
 // Skills, tools and users are admin-only on the backend.
 export function settingsTabsForRole(role?: string): SettingsTab[] {
   return role === "admin"
@@ -45,6 +70,25 @@ export function settingsTabsForRole(role?: string): SettingsTab[] {
         (tab) =>
           tab.id !== "skills" && tab.id !== "tools" && tab.id !== "users",
       );
+}
+
+// The same role-filtered tabs, grouped into labeled categories (empty
+// categories are dropped, e.g. "Agent" for non-admins without a KB).
+export function settingsCategoriesForRole(role?: string): {
+  id: string;
+  label: string;
+  tabs: SettingsTab[];
+}[] {
+  const visible = new Set(settingsTabsForRole(role).map((tab) => tab.id));
+  return SETTINGS_TAB_CATEGORIES.map((category) => ({
+    id: category.id,
+    label: category.label,
+    tabs: category.tabIds
+      .map((id) => SETTINGS_TABS.find((tab) => tab.id === id))
+      .filter(
+        (tab): tab is SettingsTab => tab !== undefined && visible.has(tab.id),
+      ),
+  })).filter((category) => category.tabs.length > 0);
 }
 
 type SettingsTabsContextValue = {
