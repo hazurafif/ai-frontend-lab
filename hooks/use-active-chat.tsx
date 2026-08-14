@@ -643,12 +643,58 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
   // (`{decision}` / `{decisions}`); the backend resumes the paused thread
   // via the `id` field and ignores `messages` on this path.
   const resumeInterrupt = useCallback(
-    async (_messageId: string, decisionPayload: Record<string, unknown>) => {
+    async (messageId: string, decisionPayload: Record<string, unknown>) => {
       const chatIdAtResume = chatId;
       const controller = new AbortController();
       const merger = new ChatStreamMerger();
       let streamError: string | null = null;
       setResumeActive(true);
+
+      // Stamp the outcome on the interrupted message's interrupt part so
+      // the card renders as settled (collapsed Approved/Rejected) in the
+      // live chat AND in persisted history after a reload.
+      const firstDecision =
+        (Array.isArray(decisionPayload.decisions)
+          ? decisionPayload.decisions[0]
+          : undefined) ?? decisionPayload.decision;
+      const resolved =
+        firstDecision !== null &&
+        typeof firstDecision === "object" &&
+        "type" in firstDecision
+          ? String((firstDecision as { type?: unknown }).type) === "approve"
+            ? "approve"
+            : "reject"
+          : null;
+      if (resolved) {
+        setMessages((current) =>
+          current.map((message) =>
+            message.id === messageId
+              ? {
+                  ...message,
+                  parts: message.parts.map((part) =>
+                    part.type === "custom" && part.kind === "app.interrupt"
+                      ? ({
+                          ...part,
+                          providerMetadata: {
+                            ...part.providerMetadata,
+                            app: {
+                              ...((
+                                part.providerMetadata as
+                                  | Record<string, unknown>
+                                  | undefined
+                              )?.app as Record<string, unknown> | undefined),
+                              resolved,
+                            },
+                          },
+                        } as ChatMessage["parts"][number])
+                      : part,
+                  ),
+                }
+              : message,
+          ),
+        );
+      }
+
       try {
         await readSSE(
           `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/api/chat`,

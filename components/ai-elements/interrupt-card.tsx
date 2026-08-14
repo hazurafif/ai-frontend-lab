@@ -46,6 +46,9 @@ type InterruptPayload = {
     action_requests?: ActionRequest[];
     description?: string;
   }[];
+  /** Outcome stamped by the frontend when the decision was made (persisted
+   * with the message so history renders the settled card). */
+  resolved?: "approve" | "reject";
 };
 
 function formatArgs(args: unknown): string {
@@ -100,6 +103,9 @@ export function InterruptCard({
   const app = (metadata.app as InterruptPayload) ?? metadata;
   const interrupts = Array.isArray(app.interrupts) ? app.interrupts : [];
   const actionRequests = interrupts[0]?.action_requests ?? [];
+  // Settled either by this session (local `outcome`) or by a previous
+  // session (the persisted `resolved` marker on the part).
+  const settledOutcome = outcome ?? app.resolved ?? null;
 
   // Approve/reject every pending tool call: the backend requires one
   // decision per hanging tool call, so a single approve for a two-call
@@ -121,7 +127,7 @@ export function InterruptCard({
   // Settled (approved/rejected): collapse to a completed-tool-style row —
   // icon + title + status badge + chevron, collapsed by default; the
   // request details stay available behind the expander.
-  const settled = outcome !== null;
+  const settled = settledOutcome !== null;
 
   const requestRows = actionRequests.length > 0 ? (
     actionRequests.map((request, index) => {
@@ -162,9 +168,9 @@ export function InterruptCard({
           </span>
           <Badge
             className="ml-auto"
-            variant={outcome === "approve" ? "outline" : "secondary"}
+            variant={settledOutcome === "approve" ? "outline" : "secondary"}
           >
-            {outcome === "approve" ? "Approved" : "Rejected"}
+            {settledOutcome === "approve" ? "Approved" : "Rejected"}
           </Badge>
           <ChevronDownIcon
             className={cn(
