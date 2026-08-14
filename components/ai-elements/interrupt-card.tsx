@@ -67,14 +67,20 @@ function requestName(request: ActionRequest): string {
 }
 
 /** Card title derived from the tool(s) awaiting approval: "execute
- *approval*", "write_file *approval*", … (fallback: "Approval required"). */
+ *[approval]*", "write_file *[approval]*" with the word as a badge;
+ * fallback: "Approval required" / "N tools approval". */
 function ApprovalTitle({ actionRequests }: { actionRequests: ActionRequest[] }) {
   const names = Array.from(new Set(actionRequests.map(requestName)));
   if (names.length === 1 && names[0] && names[0] !== "tool") {
     return (
       <>
         {names[0]}{" "}
-        <span className="italic">approval</span>
+        <Badge
+          className="align-middle font-normal normal-case"
+          variant="secondary"
+        >
+          approval
+        </Badge>
       </>
     );
   }
