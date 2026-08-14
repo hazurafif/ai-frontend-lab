@@ -85,7 +85,7 @@ export function AppSidebar() {
   const pathname = usePathname();
   const { setOpenMobile, toggleSidebar } = useSidebar();
   const { resolvedTheme, setTheme } = useTheme();
-  const { deleteAllChats } = useActiveChat();
+  const { deleteAllChats, newChat } = useActiveChat();
   const { user, logout } = useAuth();
   const { activeTab, setActiveTab } = useSettingsTabs();
   const [mounted, setMounted] = useState(false);
@@ -127,8 +127,8 @@ export function AppSidebar() {
 
   const handleNewChat = useCallback(() => {
     setOpenMobile(false);
-    router.push("/");
-  }, [router, setOpenMobile]);
+    newChat();
+  }, [newChat, setOpenMobile]);
 
   const handleShowDeleteAllDialog = useCallback(() => {
     setShowDeleteAllDialog(true);
