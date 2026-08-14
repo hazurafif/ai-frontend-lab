@@ -67,24 +67,14 @@ function requestName(request: ActionRequest): string {
 }
 
 /** Card title derived from the tool(s) awaiting approval: "execute
- *[approval]*", "write_file *[approval]*" — the tool name matches the tool
- * card's mono styling; fallback: "Approval required" / "N tools approval". */
-function ApprovalTitle({ actionRequests }: { actionRequests: ActionRequest[] }) {
+ *approval*", "write_file *approval*" — rendered in the tool card's mono
+ * styling by the caller; fallback: "Approval required" / "N tools approval". */
+function approvalTitle(actionRequests: ActionRequest[]): string {
   const names = Array.from(new Set(actionRequests.map(requestName)));
   if (names.length === 1 && names[0] && names[0] !== "tool") {
-    return (
-      <>
-        <span className="font-mono">{names[0]}</span>{" "}
-        <Badge
-          className="align-middle font-normal normal-case"
-          variant="secondary"
-        >
-          approval
-        </Badge>
-      </>
-    );
+    return `${names[0]} approval`;
   }
-  return <>{names.length > 1 ? `${names.length} tools approval` : "Approval required"}</>;
+  return names.length > 1 ? `${names.length} tools approval` : "Approval required";
 }
 
 export function InterruptCard({
@@ -167,8 +157,8 @@ export function InterruptCard({
       >
         <CollapsibleTrigger className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-muted/40">
           <WrenchIcon className="size-3.5 shrink-0 text-muted-foreground" />
-          <span className="min-w-0 truncate text-[12px] font-medium text-foreground">
-            <ApprovalTitle actionRequests={actionRequests} />
+          <span className="min-w-0 truncate font-mono text-[12px] font-medium text-foreground">
+            {approvalTitle(actionRequests)}
           </span>
           <Badge
             className="ml-auto"
@@ -196,8 +186,8 @@ export function InterruptCard({
     <div className="w-full max-w-[min(560px,100%)] overflow-hidden rounded-xl border border-border/60 bg-card/50">
       <div className="flex items-center gap-2 px-3 py-2">
         <WrenchIcon className="size-3.5 shrink-0 text-muted-foreground" />
-        <span className="text-[12px] font-medium text-foreground">
-          <ApprovalTitle actionRequests={actionRequests} />
+        <span className="font-mono text-[12px] font-medium text-foreground">
+          {approvalTitle(actionRequests)}
         </span>
         <Badge className="ml-auto" variant="secondary">
           {actionRequests.length > 0
