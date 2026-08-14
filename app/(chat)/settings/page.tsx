@@ -856,7 +856,6 @@ function GeneralTab({
   isAdmin: boolean;
 }) {
   const [prompt, setPrompt] = useState(settings.systemPrompt);
-  const [interruptOn, setInterruptOn] = useState(settings.interruptOn);
   const [searxng, setSearxng] = useState(settings.searxngEnabled);
   // Defensive: settings.execute is normalized on load and after every
   // backend sync, but a partial value must never reach a Switch's `checked`
@@ -873,31 +872,61 @@ function GeneralTab({
     Boolean(executeDraft.inheritEnv),
   );
   const [savingExecute, setSavingExecute] = useState(false);
+  // Human-in-the-loop gate (backend-live via admin /settings): tool name ->
+  // requires approval. Draft is a copy so toggling doesn't persist until
+  // "Save HITL settings".
+  const [hitlDraft, setHitlDraft] = useState<Record<string, boolean>>(
+    settings.hitlInterruptOn,
+  );
+  const [savingHitl, setSavingHitl] = useState(false);
 
   // Sync local draft when settings load/change from storage.
   useEffect(() => {
     const execute = settings.execute ?? DEFAULT_SETTINGS.execute;
     setPrompt(settings.systemPrompt);
-    setInterruptOn(settings.interruptOn);
     setSearxng(settings.searxngEnabled);
     setExecuteEnabled(Boolean(execute.enabled));
     setExecuteTimeout(String(execute.maxTimeout));
     setExecuteInheritEnv(Boolean(execute.inheritEnv));
+    setHitlDraft(settings.hitlInterruptOn);
   }, [
     settings.systemPrompt,
-    settings.interruptOn,
     settings.searxngEnabled,
     settings.execute,
+    settings.hitlInterruptOn,
   ]);
 
   const save = () => {
     setSettings((current) => ({
       ...current,
       systemPrompt: prompt,
-      interruptOn,
       searxngEnabled: searxng,
     }));
     toast.success("Settings saved");
+  };
+
+  const toggleHitlTool = (tool: string, enabled: boolean) => {
+    setHitlDraft((current) => ({ ...current, [tool]: enabled }));
+  };
+
+  const saveHitl = async () => {
+    setSavingHitl(true);
+    try {
+      const next = await updateAppSettings({
+        hitl: { interruptOn: hitlDraft },
+      });
+      setSettings((current) => ({
+        ...current,
+        hitlInterruptOn: next.hitl.interruptOn,
+      }));
+      toast.success("HITL settings saved — active on the next run");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to save HITL settings",
+      );
+    } finally {
+      setSavingHitl(false);
+    }
   };
 
   const saveExecute = async () => {
@@ -957,20 +986,59 @@ function GeneralTab({
         </FieldGroup>
       </Card>
       <Card className="flex flex-col gap-4">
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex flex-col gap-0.5">
-            <span className="text-sm font-medium">Human-in-the-loop</span>
-            <span className="text-[13px] text-muted-foreground">
-              Pause before sensitive tool calls (write_file, edit_file) for
-              approval.
-            </span>
-          </div>
-          <Switch
-            checked={interruptOn}
-            onCheckedChange={setInterruptOn}
-            aria-label="Human-in-the-loop"
-          />
+        <div className="flex flex-col gap-0.5">
+          <span className="text-sm font-medium">Human-in-the-loop</span>
+          <span className="text-[13px] text-muted-foreground">
+            Pause before these tool calls for approval. The run resumes with
+            Approve / Reject / Edit / Respond.
+          </span>
         </div>
+        {[
+          {
+            label: "execute",
+            description: "Shell commands on the host",
+          },
+          {
+            label: "edit_file",
+            description: "Modify an existing file",
+          },
+          {
+            label: "write_file",
+            description: "Create or overwrite a file",
+          },
+        ].map((tool) => (
+          <div
+            className="flex items-center justify-between gap-4"
+            key={tool.label}
+          >
+            <div className="flex flex-col gap-0.5">
+              <span className="font-mono text-[13px]">{tool.label}</span>
+              <span className="text-[12px] text-muted-foreground">
+                {tool.description}
+              </span>
+            </div>
+            <Switch
+              aria-label={`Approve ${tool.label}`}
+              checked={Boolean(hitlDraft[tool.label])}
+              onCheckedChange={(checked) => toggleHitlTool(tool.label, checked)}
+            />
+          </div>
+        ))}
+        <div className="flex items-center gap-3">
+          <Button
+            disabled={savingHitl}
+            onClick={saveHitl}
+            size="sm"
+            type="button"
+          >
+            {savingHitl ? "Saving…" : "Save HITL settings"}
+          </Button>
+          <span className="text-[12px] text-muted-foreground">
+            Applies on the next run — no restart needed.
+          </span>
+        </div>
+      </Card>
+      <Card className="flex flex-col gap-4">
         <div className="flex items-center justify-between gap-4">
           <div className="flex flex-col gap-0.5">
             <span className="text-sm font-medium">Web search (SearXNG)</span>
@@ -1809,19 +1877,18 @@ export default function SettingsPage() {
         return;
       }
       setBackendOnline(true);
-      // Health values only seed the first-run defaults. The backend has no
-      // /settings endpoints yet (model, prompt, toggles are local-only), so
-      // applying health.model etc. on every load would silently clobber the
-      // user's saved choices.
+      // Health values only seed the first-run defaults. The backend has
+      // /settings endpoints for execute/HITL (DB wins); model, prompt and
+      // the search toggle are still local-only, so applying health.model
+      // etc. on every load would silently clobber the user's saved choices.
       const hasSaved = hasStoredSettings();
       setSettings((current) => ({
         ...current,
         model: hasSaved ? current.model : (health.model ?? current.model),
-        interruptOn: hasSaved
-          ? current.interruptOn
-          : Boolean(
-              health.interrupt_on && Object.keys(health.interrupt_on).length,
-            ),
+        hitlInterruptOn: hasSaved
+          ? current.hitlInterruptOn
+          : ((health.interrupt_on as Record<string, boolean> | undefined) ??
+            {}),
         searxngEnabled: hasSaved
           ? current.searxngEnabled
           : (health.searxng?.enabled ?? current.searxngEnabled),
@@ -1871,6 +1938,7 @@ export default function SettingsPage() {
             inheritEnv: live.execute.inheritEnv,
             maxTimeout: live.execute.maxTimeout,
           },
+          hitlInterruptOn: live.hitl.interruptOn,
         }));
       })
       .catch(() => {

@@ -179,13 +179,22 @@ export type ConnectionsPolicy = {
   source: SettingsSource;
 };
 
+export type HitlSettings = {
+  // Tool name -> pause for human approval (e.g. execute, edit_file,
+  // write_file). Empty = HITL off. Gates the builtin default agent; named
+  // agent configs keep their own per-config interrupt_on.
+  interruptOn: Record<string, boolean>;
+  source: SettingsSource;
+};
+
 export type AppSettings = {
   execute: ExecuteSettings;
   connections: ConnectionsPolicy;
+  hitl: HitlSettings;
 };
 
 // Wire shapes — the backend returns snake_case (max_timeout, inherit_env,
-// fallback_env); mapped to the camelCase AppSettings above.
+// fallback_env, interrupt_on); mapped to the camelCase AppSettings above.
 type AppSettingsOut = {
   execute: {
     enabled: boolean;
@@ -197,6 +206,10 @@ type AppSettingsOut = {
     fallback_env: boolean;
     source: SettingsSource;
   };
+  hitl: {
+    interrupt_on: Record<string, boolean> | null;
+    source: SettingsSource;
+  };
 };
 
 function toAppSettings(out: AppSettingsOut): AppSettings {
@@ -206,6 +219,7 @@ function toAppSettings(out: AppSettingsOut): AppSettings {
   // uncontrolled React warnings).
   const execute = out.execute ?? ({} as AppSettingsOut["execute"]);
   const connections = out.connections ?? ({} as AppSettingsOut["connections"]);
+  const hitl = out.hitl ?? ({} as AppSettingsOut["hitl"]);
   return {
     execute: {
       enabled: Boolean(execute.enabled),
@@ -220,6 +234,10 @@ function toAppSettings(out: AppSettingsOut): AppSettings {
       fallbackEnv: Boolean(connections.fallback_env),
       source: connections.source ?? "env",
     },
+    hitl: {
+      interruptOn: hitl.interrupt_on ?? {},
+      source: hitl.source ?? "env",
+    },
   };
 }
 
@@ -228,6 +246,7 @@ export type AppSettingsPatch = {
     Pick<ExecuteSettings, "enabled" | "maxTimeout" | "inheritEnv">
   >;
   connections?: Partial<Pick<ConnectionsPolicy, "fallbackEnv">>;
+  hitl?: Partial<Pick<HitlSettings, "interruptOn">>;
 };
 
 export async function fetchAppSettings(): Promise<AppSettings> {
@@ -251,6 +270,7 @@ export async function updateAppSettings(
       connections: patch.connections
         ? { fallback_env: patch.connections.fallbackEnv }
         : undefined,
+      hitl: patch.hitl ? { interrupt_on: patch.hitl.interruptOn } : undefined,
     }),
   });
   return toAppSettings((await res.json()) as AppSettingsOut);
@@ -340,19 +360,21 @@ export type SettingsState = {
   model: string;
   thinkingEffort: ThinkingEffort;
   systemPrompt: string;
-  interruptOn: boolean;
   searxngEnabled: boolean;
   // Completion source for the model selector (null = server-configured
   // env source via MODELS_BASE_URL / MODELS_API_KEY).
   modelConnection: ModelConnection | null;
   // Backend-live settings (admin-only /settings): the execute tool
-  // settings. Mirrored to localStorage as an offline cache; the backend's
-  // /settings values win when it's online.
+  // settings and the HITL gate. Mirrored to localStorage as an offline
+  // cache; the backend's /settings values win when it's online.
   execute: {
     enabled: boolean;
     maxTimeout: number;
     inheritEnv: boolean;
   };
+  // Tool name -> pause for human approval (execute, edit_file, write_file).
+  // Empty = human-in-the-loop off.
+  hitlInterruptOn: Record<string, boolean>;
   skills: Skill[];
   tools: ToolConfig[];
   knowledgeBases: KnowledgeBase[];
@@ -375,11 +397,11 @@ export const DEFAULT_SETTINGS: SettingsState = {
   modelConnection: null,
   systemPrompt:
     "You are a helpful AI assistant running inside a backend service. Be concise and direct.",
-  interruptOn: false,
   searxngEnabled: false,
   // Backend .env defaults (EXECUTE_ENABLED=false, EXECUTE_MAX_TIMEOUT=3600,
-  // EXECUTE_INHERIT_ENV=false).
+  // EXECUTE_INHERIT_ENV=false); HITL off by default.
   execute: { enabled: false, maxTimeout: 3600, inheritEnv: false },
+  hitlInterruptOn: {},
   skills: [
     {
       name: "code-review",
@@ -413,6 +435,15 @@ export function loadSettings(): SettingsState {
     }
     const parsed = JSON.parse(raw) as Partial<SettingsState>;
     const execute = parsed.execute ?? DEFAULT_SETTINGS.execute;
+    // Old single boolean toggle (pre-HITL-map builds) migrated to the tool
+    // map: it gated the sensitive file tools (write_file, edit_file).
+    const legacyInterruptOn = (
+      parsed as Partial<SettingsState> & {
+        interruptOn?: unknown;
+      }
+    ).interruptOn;
+    const migratedInterruptOn =
+      typeof legacyInterruptOn === "boolean" ? legacyInterruptOn : null;
     return {
       ...DEFAULT_SETTINGS,
       ...parsed,
@@ -430,6 +461,11 @@ export function loadSettings(): SettingsState {
             : DEFAULT_SETTINGS.execute.maxTimeout,
         inheritEnv: Boolean(execute.inheritEnv),
       },
+      hitlInterruptOn:
+        parsed.hitlInterruptOn ??
+        (migratedInterruptOn
+          ? { edit_file: true, write_file: true }
+          : DEFAULT_SETTINGS.hitlInterruptOn),
       skills: (parsed.skills ?? DEFAULT_SETTINGS.skills).map(migrateSkill),
       tools: (parsed.tools ?? DEFAULT_SETTINGS.tools).map(migrateTool),
       knowledgeBases: (parsed.knowledgeBases ?? []).map(migrateKnowledgeBase),
@@ -535,7 +571,6 @@ export type HealthPayload = {
   execute?: { enabled?: boolean; max_timeout?: number };
   agent_resources?: { skills?: number; tool_servers?: number };
 };
-
 export async function fetchBackendHealth(): Promise<HealthPayload | null> {
   try {
     const res = await fetchWithAuth("/api/health", { cache: "no-store" });
