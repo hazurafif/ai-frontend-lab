@@ -458,11 +458,12 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
   );
 
   // Resume a human-in-the-loop interrupt: truncate the interrupted assistant
-  // message and re-request. The transport merges `decision` into the request
-  // body; the backend sees it and resumes the paused thread.
+  // message and re-request. The payload (`{decision}` / `{decisions}`) is
+  // merged into the request body as-is; the backend sees it and resumes the
+  // paused thread.
   const resumeInterrupt = useCallback(
-    (messageId: string, decision: Record<string, unknown>) => {
-      regenerate({ messageId, body: { decision } });
+    (messageId: string, decisionPayload: Record<string, unknown>) => {
+      regenerate({ messageId, body: decisionPayload });
     },
     [regenerate],
   );
