@@ -72,7 +72,7 @@ function ReasoningBlock({
           Thinking
         </span>
         {isStreaming && (
-          <Badge variant="secondary">
+          <Badge className="ml-auto" variant="secondary">
             <Loader2Icon className="animate-spin" />
             Thinking…
           </Badge>
