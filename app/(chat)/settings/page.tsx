@@ -986,13 +986,7 @@ function GeneralTab({
         </FieldGroup>
       </Card>
       <Card className="flex flex-col gap-4">
-        <div className="flex flex-col gap-0.5">
-          <span className="text-sm font-medium">Human-in-the-loop</span>
-          <span className="text-[13px] text-muted-foreground">
-            Pause before these tool calls for approval. The run resumes with
-            Approve / Reject / Edit / Respond.
-          </span>
-        </div>
+        <span className="text-sm font-medium">Human-in-the-loop</span>
         {[
           {
             label: "execute",
@@ -1031,11 +1025,8 @@ function GeneralTab({
             size="sm"
             type="button"
           >
-            {savingHitl ? "Saving…" : "Save HITL settings"}
+            {savingHitl ? "Saving…" : "Save"}
           </Button>
-          <span className="text-[12px] text-muted-foreground">
-            Applies on the next run — no restart needed.
-          </span>
         </div>
       </Card>
       <Card className="flex flex-col gap-4">
@@ -1107,7 +1098,7 @@ function GeneralTab({
               size="sm"
               type="button"
             >
-              {savingExecute ? "Saving…" : "Save execution settings"}
+              {savingExecute ? "Saving…" : "Save"}
             </Button>
           </div>
         </Card>
