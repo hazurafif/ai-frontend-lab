@@ -7,7 +7,7 @@ import { useMessages } from "@/hooks/use-messages";
 import { fetchThreadFollowUps } from "@/lib/threads";
 import type { ChatMessage } from "@/lib/types";
 import { Greeting } from "./greeting";
-import { PreviewMessage, ThinkingMessage } from "./message";
+import { PreviewMessage } from "./message";
 
 type MessagesProps = {
   chatId: string;
@@ -39,11 +39,8 @@ function PureMessages({
     endRef: messagesEndRef,
     isAtBottom,
     scrollToBottom,
-    hasSentMessage,
     reset,
-  } = useMessages({
-    status,
-  });
+  } = useMessages();
 
   const prevChatIdRef = useRef(chatId);
   useEffect(() => {
@@ -130,8 +127,6 @@ function PureMessages({
             />
           ))}
 
-          {isLoading && messages.at(-1)?.role === "user" && <ThinkingMessage />}
-
           {followUps &&
             followUps.messageId === lastMessageId &&
             lastMessage?.role === "assistant" &&
@@ -161,7 +156,19 @@ function PureMessages({
         </div>
       </div>
 
-      {!isAtBottom && hasSentMessage && (
+      {/* Typing indicator: bouncing dots, centered above the composer,
+          while the response streams (same spot as the scroll button). */}
+      {isLoading && (
+        <div className="absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-border/60 bg-background/80 px-4 py-2.5 shadow-[var(--shadow-float)] backdrop-blur-sm">
+          <span className="size-1.5 animate-[thinking-dot_1.2s_infinite] rounded-full bg-muted-foreground/60" />
+          <span className="size-1.5 animate-[thinking-dot_1.2s_infinite_0.2s] rounded-full bg-muted-foreground/60" />
+          <span className="size-1.5 animate-[thinking-dot_1.2s_infinite_0.4s] rounded-full bg-muted-foreground/60" />
+        </div>
+      )}
+
+      {/* Floating jump-to-latest button, centered above the composer.
+          Appears whenever the user scrolls away from the bottom. */}
+      {!isAtBottom && !isLoading && (
         <button
           className="absolute bottom-4 left-1/2 z-10 flex size-10 -translate-x-1/2 items-center justify-center rounded-full border border-border/60 bg-background/80 text-foreground shadow-[var(--shadow-float)] backdrop-blur-sm transition-opacity duration-150 hover:bg-muted"
           onClick={handleScrollToBottom}
