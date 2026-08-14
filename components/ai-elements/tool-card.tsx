@@ -72,7 +72,9 @@ function displayOutput(output: unknown): unknown {
 }
 
 export function ToolCard({ part }: { part: ToolUIPart }) {
-  const [open, setOpen] = useState(true);
+  // Collapsed by default: tool input/output JSON stays out of the way; the
+  // prefab app block (inline) and text carry the visible content.
+  const [open, setOpen] = useState(false);
   const status = statusOf(part.state);
   const toolName = part.type.replace(/^tool-/, "");
   const output = part.output !== undefined ? displayOutput(part.output) : undefined;
