@@ -117,16 +117,24 @@ export function PrefabApp({ payload }: { payload: PrefabPayload }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const payloadRef = useRef(payload);
   const readyRef = useRef(false);
-  const abortRef = useRef(new AbortController());
+  // JSON of the envelope last handed to the renderer. The chat re-creates
+  // part objects on every message update, so `payload` reference changes
+  // constantly — re-pushing on reference alone would reset the app's
+  // client-side state on every render (clicks would appear dead).
+  const pushedJsonRef = useRef<string | null>(null);
   const [status, setStatus] = useState<PrefabStatus>("loading");
   const [height, setHeight] = useState(INITIAL_HEIGHT);
 
   useEffect(() => {
-    const changed = payloadRef.current !== payload;
     payloadRef.current = payload;
-    // A regenerated response may update this part's output in place — push
-    // the fresh envelope to the already-initialized renderer.
-    if (changed && readyRef.current) {
+    // Only re-push when the envelope CONTENT actually changed (e.g. a
+    // regenerated response updated this part's output in place).
+    if (!readyRef.current) {
+      return;
+    }
+    const nextJson = JSON.stringify(payload.json);
+    if (nextJson !== pushedJsonRef.current) {
+      pushedJsonRef.current = nextJson;
       iframeRef.current?.contentWindow?.postMessage(
         {
           jsonrpc: "2.0",
@@ -148,6 +156,11 @@ export function PrefabApp({ payload }: { payload: PrefabPayload }) {
       return;
     }
     let initialized = false;
+    // Created per setup, NOT via useRef: dev StrictMode runs effects as
+    // setup -> cleanup -> setup, and an aborted controller from the first
+    // cleanup would make every forwarded tools/call fetch throw AbortError
+    // (buttons appear dead).
+    const abortController = new AbortController();
 
     const post = (message: unknown) => {
       iframe.contentWindow?.postMessage(message, "*");
@@ -194,6 +207,7 @@ export function PrefabApp({ payload }: { payload: PrefabPayload }) {
           readyRef.current = true;
           initialized = true;
           setStatus("ready");
+          pushedJsonRef.current = JSON.stringify(payloadRef.current.json);
           post({
             jsonrpc: "2.0",
             method: "ui/notifications/tool-result",
@@ -215,7 +229,7 @@ export function PrefabApp({ payload }: { payload: PrefabPayload }) {
         case "tools/call": {
           // Interactive app action — forward to the backend's MCP proxy and
           // hand the CallToolResult back to the renderer verbatim.
-          void forwardToolCall(message, post, abortRef.current.signal);
+          void forwardToolCall(message, post, abortController.signal);
           break;
         }
         default:
@@ -232,7 +246,7 @@ export function PrefabApp({ payload }: { payload: PrefabPayload }) {
 
     return () => {
       window.clearTimeout(timeout);
-      abortRef.current.abort();
+      abortController.abort();
       window.removeEventListener("message", onMessage);
       readyRef.current = false;
       // Graceful teardown (best-effort, fire-and-forget).
