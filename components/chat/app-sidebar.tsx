@@ -130,6 +130,14 @@ export function AppSidebar() {
     newChat();
   }, [newChat, setOpenMobile]);
 
+  // Settings sidebar: return to the chat UI. newChat() only navigates when a
+  // chat route is open, so it can't be reused here — push / explicitly (the
+  // active thread is restored from the ActiveChatProvider store).
+  const handleBackToChat = useCallback(() => {
+    setOpenMobile(false);
+    router.push("/");
+  }, [router, setOpenMobile]);
+
   const handleShowDeleteAllDialog = useCallback(() => {
     setShowDeleteAllDialog(true);
   }, []);
@@ -205,7 +213,7 @@ export function AppSidebar() {
                     <SidebarMenuItem>
                       <SidebarMenuButton
                         className="h-8 rounded-lg border border-sidebar-border text-[13px] text-sidebar-foreground/70 transition-colors duration-150 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
-                        onClick={handleNewChat}
+                        onClick={handleBackToChat}
                         tooltip="Back to chat"
                       >
                         <MessageSquareIcon className="size-4" />
