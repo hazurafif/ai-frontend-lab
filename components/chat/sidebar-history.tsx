@@ -38,7 +38,6 @@ import { HISTORY_CHANGED_EVENT, HISTORY_STORAGE_KEY } from "@/lib/constants";
 import {
   deleteThread,
   fetchThreads,
-  generateThreadTitle,
   renameThread,
   type ServerThread,
 } from "@/lib/threads";
@@ -266,40 +265,6 @@ export function SidebarHistory({
     setRenameTarget(null);
   }, [history, isAuthenticated, renameDraft, renameTarget]);
 
-  const handleRegenerateTitle = useCallback(
-    async (chat: ChatHistoryItem) => {
-      if (!isAuthenticated) {
-        toast.error("Sign in to generate titles from your conversations.");
-        return;
-      }
-      try {
-        const thread = await generateThreadTitle(chat.id);
-        if (!thread) {
-          throw new Error("Couldn't generate a title for this chat.");
-        }
-        const updated: ChatHistoryItem = {
-          ...chat,
-          title: thread.title || chat.title,
-        };
-        setHistory((current) =>
-          current.map((item) => (item.id === updated.id ? updated : item)),
-        );
-        saveHistory(
-          history.map((item) => (item.id === updated.id ? updated : item)),
-        );
-        window.dispatchEvent(new Event(HISTORY_CHANGED_EVENT));
-        toast.success("Title updated");
-      } catch (error) {
-        toast.error(
-          error instanceof Error
-            ? error.message
-            : "Couldn't generate a title. Please try again.",
-        );
-      }
-    },
-    [history, isAuthenticated],
-  );
-
   // Filter by title when the sidebar search is active; the date groups are
   // kept so matching chats still read as a timeline.
   const query = searchQuery.trim().toLowerCase();
@@ -333,10 +298,8 @@ export function SidebarHistory({
                       <ChatItem
                         chat={chat}
                         isActive={chat.id === id}
-                        isAuthenticated={isAuthenticated}
                         key={chat.id}
                         onDelete={handleShowDeleteDialog}
-                        onRegenerateTitle={handleRegenerateTitle}
                         onRename={handleShowRename}
                         setOpenMobile={setOpenMobile}
                         status={statuses[chat.id] ?? null}
@@ -354,10 +317,8 @@ export function SidebarHistory({
                       <ChatItem
                         chat={chat}
                         isActive={chat.id === id}
-                        isAuthenticated={isAuthenticated}
                         key={chat.id}
                         onDelete={handleShowDeleteDialog}
-                        onRegenerateTitle={handleRegenerateTitle}
                         onRename={handleShowRename}
                         setOpenMobile={setOpenMobile}
                         status={statuses[chat.id] ?? null}
@@ -375,10 +336,8 @@ export function SidebarHistory({
                       <ChatItem
                         chat={chat}
                         isActive={chat.id === id}
-                        isAuthenticated={isAuthenticated}
                         key={chat.id}
                         onDelete={handleShowDeleteDialog}
-                        onRegenerateTitle={handleRegenerateTitle}
                         onRename={handleShowRename}
                         setOpenMobile={setOpenMobile}
                         status={statuses[chat.id] ?? null}
@@ -396,10 +355,8 @@ export function SidebarHistory({
                       <ChatItem
                         chat={chat}
                         isActive={chat.id === id}
-                        isAuthenticated={isAuthenticated}
                         key={chat.id}
                         onDelete={handleShowDeleteDialog}
-                        onRegenerateTitle={handleRegenerateTitle}
                         onRename={handleShowRename}
                         setOpenMobile={setOpenMobile}
                         status={statuses[chat.id] ?? null}
@@ -417,10 +374,8 @@ export function SidebarHistory({
                       <ChatItem
                         chat={chat}
                         isActive={chat.id === id}
-                        isAuthenticated={isAuthenticated}
                         key={chat.id}
                         onDelete={handleShowDeleteDialog}
-                        onRegenerateTitle={handleRegenerateTitle}
                         onRename={handleShowRename}
                         setOpenMobile={setOpenMobile}
                         status={statuses[chat.id] ?? null}

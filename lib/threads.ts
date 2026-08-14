@@ -160,25 +160,6 @@ export async function fetchThreadFollowUps(
   return (await res.json()) as ThreadFollowUp;
 }
 
-// POST /threads/{id}/title (backend `ThreadOut`): regenerate the thread's
-// title from the conversation via the LLM. Always regenerates (unlike the
-// followup endpoint, which keeps intentional titles). 404 when the thread
-// has no messages yet.
-
-/** Regenerate a thread's title server-side; the updated thread, or null. */
-export async function generateThreadTitle(
-  threadId: string,
-): Promise<ServerThread | null> {
-  const res = await threadFetch(
-    `/api/chat/threads/${encodeURIComponent(threadId)}/title`,
-    { method: "POST" },
-  );
-  if (!res.ok) {
-    return null;
-  }
-  return (await res.json()) as ServerThread;
-}
-
 /** Delete a thread server-side (checkpoint, history rows, metadata). */
 export async function deleteThread(threadId: string): Promise<void> {
   await threadFetch(`/api/chat/threads/${encodeURIComponent(threadId)}`, {

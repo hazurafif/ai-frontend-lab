@@ -4,6 +4,7 @@ import type { UseChatHelpers } from "@ai-sdk/react";
 import { ArrowDownIcon, CornerDownRightIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useMessages } from "@/hooks/use-messages";
+import { updateHistoryTitle } from "@/lib/chat/history";
 import { fetchThreadFollowUps } from "@/lib/threads";
 import type { ChatMessage } from "@/lib/types";
 import { Greeting } from "./greeting";
@@ -72,7 +73,14 @@ function PureMessages({
     let cancelled = false;
     fetchThreadFollowUps(chatId)
       .then((data) => {
-        if (cancelled || !data || data.followups.length === 0) {
+        if (cancelled || !data) {
+          return;
+        }
+        // The backend auto-generates a title on the first run and upserts
+        // it server-side; mirror it into the local history so the sidebar
+        // picks it up without waiting for a reload.
+        updateHistoryTitle(chatId, data.title);
+        if (data.followups.length === 0) {
           return;
         }
         setFollowUps({ items: data.followups, messageId: lastMessageId });
