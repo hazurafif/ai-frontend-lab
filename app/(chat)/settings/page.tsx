@@ -49,6 +49,13 @@ import {
   FieldLabel,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import {
   Table,
@@ -61,7 +68,16 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
-import { type ChatModel, chatModels, findChatModel } from "@/lib/models";
+import { useAvailableModels } from "@/hooks/use-available-models";
+import {
+  type ChatModel,
+  COMPLETION_PROVIDERS,
+  type CompletionProviderId,
+  chatModels,
+  completionProvider,
+  findChatModel,
+  type ModelConnection,
+} from "@/lib/models";
 import {
   createSkill as apiCreateSkill,
   createToolServer as apiCreateToolServer,
@@ -926,27 +942,54 @@ function ModelTab({
 }) {
   const [modelId, setModelId] = useState(settings.model);
   const [open, setOpen] = useState(false);
+  // Connection to the completion source that feeds the model list.
+  const [connDraft, setConnDraft] = useState<ModelConnection>({
+    apiKey: "",
+    baseUrl: "",
+    provider: "default",
+  });
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{
+    ok: boolean;
+    message: string;
+  } | null>(null);
+  // Sync the draft whenever a saved connection arrives/changes (settings
+  // load from localStorage after mount; saves persist via the update()
+  // wrapper in the page).
+  useEffect(() => {
+    setConnDraft(
+      settings.modelConnection ?? {
+        apiKey: "",
+        baseUrl: "",
+        provider: "default",
+      },
+    );
+  }, [settings.modelConnection]);
+  // Live models from the completion source (GET /api/models); null while
+  // loading or when the fetch fails → fall back to the built-in list.
+  const sourceModels = useAvailableModels();
   // The live id may come from the backend (GET /health) and not exist in
-  // the preset list — never silently fall back to a wrong preset entry.
+  // the list — never silently fall back to a wrong preset entry.
   const model: ChatModel | undefined = useMemo(
     () => findChatModel(modelId),
     [modelId],
   );
-  // When the current id isn't a preset, surface it at the top of the list
-  // as-is so the active model stays visible and re-selectable.
+  // When the current id isn't in the list, surface it at the top as-is so
+  // the active model stays visible and re-selectable.
   const models: ChatModel[] = useMemo(() => {
-    if (model) {
-      return chatModels;
+    const base = sourceModels ?? chatModels;
+    if (base.some((m) => m.id === modelId)) {
+      return base;
     }
     return [
       {
         id: modelId,
         name: modelId,
-        description: "Model reported by the backend — not in the preset list",
+        description: "Model reported by the backend — not in the list",
       },
-      ...chatModels,
+      ...base,
     ];
-  }, [model, modelId]);
+  }, [modelId, sourceModels]);
 
   useEffect(() => {
     setModelId(settings.model);
@@ -957,8 +1000,174 @@ function ModelTab({
     toast.success(`Model set to ${modelId}`);
   };
 
+  const applyProvider = (id: CompletionProviderId) => {
+    const provider = completionProvider(id);
+    setConnDraft((current) => ({
+      ...current,
+      baseUrl: provider.defaultBaseUrl || current.baseUrl,
+      provider: id,
+      apiKey: provider.needsKey ? current.apiKey : "",
+    }));
+    setTestResult(null);
+  };
+
+  const testConnection = async () => {
+    if (
+      completionProvider(connDraft.provider).needsKey &&
+      !connDraft.apiKey.trim()
+    ) {
+      toast.error("Enter an API key first.");
+      return;
+    }
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const res = await fetch("/api/models", {
+        body: JSON.stringify(connDraft),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      });
+      const body = (await res.json()) as {
+        message?: string;
+        models?: unknown[];
+      };
+      if (res.ok && body.models?.length) {
+        setTestResult({
+          ok: true,
+          message: `Connected — ${body.models.length} models available`,
+        });
+      } else {
+        setTestResult({
+          ok: false,
+          message: body.message ?? `Request failed (${res.status})`,
+        });
+      }
+    } catch {
+      setTestResult({ ok: false, message: "Network error." });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const saveConnection = () => {
+    if (
+      completionProvider(connDraft.provider).needsKey &&
+      !connDraft.apiKey.trim()
+    ) {
+      toast.error("Enter an API key first.");
+      return;
+    }
+    const connection: ModelConnection | null =
+      connDraft.provider === "default" ? null : connDraft;
+    setSettings((current) => ({ ...current, modelConnection: connection }));
+    toast.success(
+      connection
+        ? "Connection saved — model list refreshed."
+        : "Using the server default source.",
+    );
+  };
+
   return (
     <div className="flex max-w-2xl flex-col gap-4">
+      <Card>
+        <FieldGroup>
+          <Field>
+            <FieldLabel>Completion source</FieldLabel>
+            <Select
+              onValueChange={(value) =>
+                applyProvider(value as CompletionProviderId)
+              }
+              value={connDraft.provider}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {COMPLETION_PROVIDERS.map((provider) => (
+                  <SelectItem key={provider.id} value={provider.id}>
+                    {provider.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <FieldDescription>
+              Where the model list below comes from. Server default uses the
+              source configured in the server environment (.env.local); the
+              others use your key to list models via the source&apos;s
+              /v1/models endpoint.
+            </FieldDescription>
+          </Field>
+          {connDraft.provider !== "default" && (
+            <>
+              <Field>
+                <FieldLabel htmlFor="model-connection-base-url">
+                  Base URL
+                </FieldLabel>
+                <Input
+                  id="model-connection-base-url"
+                  onChange={(event) => {
+                    setConnDraft((current) => ({
+                      ...current,
+                      baseUrl: event.target.value,
+                    }));
+                    setTestResult(null);
+                  }}
+                  placeholder={
+                    completionProvider(connDraft.provider).defaultBaseUrl ||
+                    "https://your-endpoint/v1"
+                  }
+                  value={connDraft.baseUrl}
+                />
+                <FieldDescription>
+                  OpenAI-compatible /v1 endpoint (Gemini&apos;s
+                  OpenAI-compatibility layer included).
+                </FieldDescription>
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="model-connection-api-key">
+                  API key
+                </FieldLabel>
+                <Input
+                  id="model-connection-api-key"
+                  onChange={(event) => {
+                    setConnDraft((current) => ({
+                      ...current,
+                      apiKey: event.target.value,
+                    }));
+                    setTestResult(null);
+                  }}
+                  placeholder="sk-…"
+                  type="password"
+                  value={connDraft.apiKey}
+                />
+              </Field>
+            </>
+          )}
+          <div className="flex items-center gap-3">
+            <Button
+              disabled={testing}
+              onClick={testConnection}
+              type="button"
+              variant="outline"
+            >
+              {testing ? "Testing…" : "Test connection"}
+            </Button>
+            {testResult && (
+              <span
+                className={cn(
+                  "text-[13px]",
+                  testResult.ok ? "text-green-600" : "text-destructive",
+                )}
+              >
+                {testResult.message}
+              </span>
+            )}
+            <Button className="ml-auto" onClick={saveConnection} type="button">
+              Save connection
+            </Button>
+          </div>
+        </FieldGroup>
+      </Card>
       <Card>
         <FieldGroup>
           <Field>
@@ -970,7 +1179,11 @@ function ModelTab({
                     className="w-full justify-between font-medium"
                     variant="outline"
                   >
-                    <span className="truncate">{model?.name ?? modelId}</span>
+                    <span className="truncate">
+                      {model?.name ??
+                        models.find((m) => m.id === modelId)?.name ??
+                        modelId}
+                    </span>
                     <ChevronsUpDownIcon
                       className="size-4 shrink-0 text-muted-foreground"
                       data-icon="inline-end"
@@ -984,7 +1197,13 @@ function ModelTab({
                   <ModelSelectorEmpty>No models found.</ModelSelectorEmpty>
                   <ModelSelectorGroup>
                     {models.map((m) => {
-                      const isRaw = !findChatModel(m.id);
+                      // Only the appended backend-reported entry is "raw";
+                      // live source models get their normal (non-mono) name.
+                      const isRaw =
+                        m.id === modelId &&
+                        !(sourceModels ?? chatModels).some(
+                          (x) => x.id === m.id,
+                        );
                       return (
                         <ModelSelectorItem
                           key={m.id}

@@ -9,6 +9,7 @@
 
 import { fetchWithAuth } from "@/lib/auth";
 import { SETTINGS_CHANGED_EVENT } from "@/lib/constants";
+import type { ModelConnection } from "@/lib/models";
 import { generateUUID } from "@/lib/utils";
 
 export type SkillFile = {
@@ -122,6 +123,10 @@ export type SettingsState = {
   systemPrompt: string;
   interruptOn: boolean;
   searxngEnabled: boolean;
+  // Completion source for the model selector (null = server-configured
+  // env source via MODELS_BASE_URL / MODELS_API_KEY). Local-only until the
+  // backend has /settings endpoints.
+  modelConnection: ModelConnection | null;
   skills: Skill[];
   tools: ToolConfig[];
   knowledgeBases: KnowledgeBase[];
@@ -140,6 +145,7 @@ const LEGACY_MODEL_IDS: Record<string, string> = {
 
 export const DEFAULT_SETTINGS: SettingsState = {
   model: "openai:gpt-4o-mini",
+  modelConnection: null,
   systemPrompt:
     "You are a helpful AI assistant running inside a backend service. Be concise and direct.",
   interruptOn: false,
@@ -183,6 +189,7 @@ export function loadSettings(): SettingsState {
         LEGACY_MODEL_IDS[parsed.model ?? ""] ??
         parsed.model ??
         DEFAULT_SETTINGS.model,
+      modelConnection: parsed.modelConnection ?? null,
       skills: (parsed.skills ?? DEFAULT_SETTINGS.skills).map(migrateSkill),
       tools: (parsed.tools ?? DEFAULT_SETTINGS.tools).map(migrateTool),
       knowledgeBases: (parsed.knowledgeBases ?? []).map(migrateKnowledgeBase),

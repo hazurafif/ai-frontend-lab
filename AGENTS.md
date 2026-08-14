@@ -74,17 +74,20 @@ app/
   api/
     chat/route.ts      # proxy POST/GET/DELETE /api/chat → BACKEND_URL + BACKEND_CHAT_PATH
     health/route.ts    # proxy GET /api/health → backend /health (live settings state)
+    models/route.ts    # GET/POST /api/models → {base}/models of a completion source (env source or {provider, baseUrl, apiKey} connection body)
 components/
   chat/                # app UI: shell, shell-route, messages, message, sidebar, history, input
   ai-elements/         # message primitives, tool-card, subagent-card, shimmer, model-selector
   ui/                  # shadcn/ui components (source, never edit registry files by hand — use CLI)
 hooks/
   use-active-chat.tsx  # useChat wiring + localStorage persistence + edit/delete (ActiveChatContext)
+  use-available-models.ts # fetches /api/models using the saved modelConnection (settings) or the env source; null → fall back to chatModels
   use-messages.tsx     # scroll behavior
   use-scroll-to-bottom.tsx
 lib/
   types.ts             # ChatMessage = UIMessage<MessageMetadata>
-  models.ts            # chatModels list (id/name/description) — sync with backend DEEPAGENTS_MODEL
+  models.ts            # chatModels list (id/name/description) — sync with backend DEEPAGENTS_MODEL; chatModelsFromSource(prefix, raw /v1/models ids) → `provider:model` ids; COMPLETION_PROVIDERS presets (default/openai/gemini/custom)
+  settings.ts          # settings state + localStorage persistence + health types; modelConnection selects the completion source (null = server env)
   settings.ts          # settings state + localStorage persistence + health types
   constants.ts         # localStorage keys
   utils.ts             # cn, getTextFromMessage, sanitizeText, generateUUID, ...

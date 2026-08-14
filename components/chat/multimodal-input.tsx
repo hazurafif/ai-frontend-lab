@@ -16,6 +16,7 @@ import {
 } from "@/components/ai-elements/model-selector";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { useAvailableModels } from "@/hooks/use-available-models";
 import { chatModelName, chatModels } from "@/lib/models";
 import type { ChatMessage } from "@/lib/types";
 import { SparklesIcon } from "./icons";
@@ -49,24 +50,34 @@ export function MultimodalInput({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [modelSelectorOpen, setModelSelectorOpen] = useState(false);
 
-  const selectedModelName = chatModelName(selectedModelId);
+  // Live models from the completion source (GET /api/models); null while
+  // loading or when the fetch fails → fall back to the built-in list.
+  const sourceModels = useAvailableModels();
 
-  // The built-in list plus the current model when it isn't built in (e.g.
-  // the backend reports a DEEPAGENTS_MODEL the frontend doesn't know), so
-  // the selected model is always representable in the menu.
+  // The live list plus the current model when it isn't listed (e.g. the
+  // backend reports a DEEPAGENTS_MODEL the source doesn't serve), so the
+  // selected model is always representable in the menu.
   const models = useMemo(() => {
-    if (chatModels.some((m) => m.id === selectedModelId)) {
-      return chatModels;
+    const base = sourceModels ?? chatModels;
+    if (base.some((m) => m.id === selectedModelId)) {
+      return base;
     }
     return [
-      ...chatModels,
+      ...base,
       {
         id: selectedModelId,
         name: selectedModelId,
-        description: "Configured on the backend (not in the built-in list)",
+        description: "Configured on the backend (not in the list)",
       },
     ];
-  }, [selectedModelId]);
+  }, [selectedModelId, sourceModels]);
+
+  const selectedModelName = useMemo(
+    () =>
+      models.find((m) => m.id === selectedModelId)?.name ??
+      chatModelName(selectedModelId),
+    [models, selectedModelId],
+  );
 
   const submitForm = (event: FormEvent) => {
     event.preventDefault();
