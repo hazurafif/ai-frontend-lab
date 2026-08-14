@@ -336,15 +336,14 @@ export type SettingsState = {
   // Completion source for the model selector (null = server-configured
   // env source via MODELS_BASE_URL / MODELS_API_KEY).
   modelConnection: ModelConnection | null;
-  // Backend-live settings (admin-only /settings): execute tool + connection
-  // policy. Mirrored to localStorage as an offline cache; the backend's
+  // Backend-live settings (admin-only /settings): the execute tool
+  // settings. Mirrored to localStorage as an offline cache; the backend's
   // /settings values win when it's online.
   execute: {
     enabled: boolean;
     maxTimeout: number;
     inheritEnv: boolean;
   };
-  connectionsFallbackEnv: boolean;
   skills: Skill[];
   tools: ToolConfig[];
   knowledgeBases: KnowledgeBase[];
@@ -370,9 +369,8 @@ export const DEFAULT_SETTINGS: SettingsState = {
   interruptOn: false,
   searxngEnabled: false,
   // Backend .env defaults (EXECUTE_ENABLED=false, EXECUTE_MAX_TIMEOUT=3600,
-  // EXECUTE_INHERIT_ENV=false, CONNECTION_FALLBACK_ENV=false).
+  // EXECUTE_INHERIT_ENV=false).
   execute: { enabled: false, maxTimeout: 3600, inheritEnv: false },
-  connectionsFallbackEnv: false,
   skills: [
     {
       name: "code-review",
@@ -423,10 +421,6 @@ export function loadSettings(): SettingsState {
             : DEFAULT_SETTINGS.execute.maxTimeout,
         inheritEnv: Boolean(execute.inheritEnv),
       },
-      connectionsFallbackEnv: Boolean(
-        parsed.connectionsFallbackEnv ??
-          DEFAULT_SETTINGS.connectionsFallbackEnv,
-      ),
       skills: (parsed.skills ?? DEFAULT_SETTINGS.skills).map(migrateSkill),
       tools: (parsed.tools ?? DEFAULT_SETTINGS.tools).map(migrateTool),
       knowledgeBases: (parsed.knowledgeBases ?? []).map(migrateKnowledgeBase),

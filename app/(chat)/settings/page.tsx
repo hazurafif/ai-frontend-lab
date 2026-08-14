@@ -1068,11 +1068,6 @@ function ModelTab({
     ok: boolean;
     message: string;
   } | null>(null);
-  // Backend connection policy (admin /settings): .env fallback toggle.
-  const [fallbackEnv, setFallbackEnv] = useState(
-    settings.connectionsFallbackEnv,
-  );
-  const [savingPolicy, setSavingPolicy] = useState(false);
   // Saved provider connections (admin /connections); null = not loaded
   // (non-admin, backend offline, or still fetching).
   const [connections, setConnections] = useState<BackendConnection[] | null>(
@@ -1196,11 +1191,6 @@ function ModelTab({
     );
   };
 
-  // Backend connection policy + saved connections (admin-only endpoints).
-  useEffect(() => {
-    setFallbackEnv(settings.connectionsFallbackEnv);
-  }, [settings.connectionsFallbackEnv]);
-
   useEffect(() => {
     if (!isAdmin) {
       return;
@@ -1225,28 +1215,6 @@ function ModelTab({
       setConnections(await fetchConnections());
     } catch {
       // Backend offline — keep the cached list.
-    }
-  };
-
-  const savePolicy = async () => {
-    setSavingPolicy(true);
-    try {
-      const next = await updateAppSettings({
-        connections: { fallbackEnv },
-      });
-      setSettings((current) => ({
-        ...current,
-        connectionsFallbackEnv: next.connections.fallbackEnv,
-      }));
-      toast.success("Connection policy saved — active on the next run");
-    } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "Failed to save connection policy",
-      );
-    } finally {
-      setSavingPolicy(false);
     }
   };
 
@@ -1380,7 +1348,7 @@ function ModelTab({
               Where the model list below comes from — server default = server
               environment (.env.local), or your key via the source&apos;s
               /v1/models endpoint. Chat requests use the backend&apos;s saved
-              Connections below (.env is only an opt-in fallback).
+              Connections below.
             </FieldDescription>
           </Field>
           {connDraft.provider !== "default" && (
@@ -1536,146 +1504,113 @@ function ModelTab({
         </FieldGroup>
       </Card>
       {isAdmin && (
-        <>
-          <Card className="flex flex-col gap-4">
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex flex-col gap-0.5">
-                <span className="text-sm font-medium">
-                  Fall back to .env credentials
-                </span>
-                <span className="text-[13px] text-muted-foreground">
-                  Use .env credentials when no saved connection of a kind
-                  exists. Off (default) — the agent fails loudly until a default
-                  connection is created.
-                </span>
-              </div>
-              <Switch
-                checked={fallbackEnv}
-                onCheckedChange={setFallbackEnv}
-                aria-label="Fall back to .env credentials"
-              />
+        <Card className="flex flex-col gap-4">
+          <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-0.5">
+              <span className="text-sm font-medium">Connections</span>
+              <span className="text-[13px] text-muted-foreground">
+                Provider credentials the backend resolves per kind (one default
+                each) for the agent&apos;s LLM, embeddings, MCP servers,
+                Weaviate and SearXNG.
+              </span>
             </div>
-            <div className="flex items-center gap-3">
-              <Button
-                disabled={savingPolicy}
-                onClick={savePolicy}
-                size="sm"
-                type="button"
-              >
-                {savingPolicy ? "Saving…" : "Save policy"}
-              </Button>
-            </div>
-          </Card>
-          <Card className="flex flex-col gap-4">
-            <div className="flex items-center justify-between">
-              <div className="flex flex-col gap-0.5">
-                <span className="text-sm font-medium">Connections</span>
-                <span className="text-[13px] text-muted-foreground">
-                  Provider credentials the backend resolves per kind (one
-                  default each) for the agent&apos;s LLM, embeddings, MCP
-                  servers, Weaviate and SearXNG.
-                </span>
-              </div>
-              <Button
-                onClick={() => openConnectionEditor(null)}
-                size="sm"
-                type="button"
-                variant="secondary"
-              >
-                <PlusIcon data-icon="inline-start" />
-                New connection
-              </Button>
-            </div>
-            {connections === null ? (
-              <p className="text-[13px] text-muted-foreground">
-                Loading connections…
-              </p>
-            ) : connections.length === 0 ? (
-              <p className="text-[13px] text-muted-foreground">
-                No connections yet — create one to configure the provider (e.g.
-                kind=llm with a base URL and API token). Without a default llm
-                connection the agent refuses to run unless .env fallback is
-                enabled.
-              </p>
-            ) : (
-              <Card className="p-0">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Kind</TableHead>
-                      <TableHead className="hidden md:table-cell">
-                        Base URL
-                      </TableHead>
-                      <TableHead className="hidden sm:table-cell">
-                        Token
-                      </TableHead>
-                      <TableHead className="w-24">Default</TableHead>
-                      <TableHead className="w-40 text-right">Actions</TableHead>
+            <Button
+              onClick={() => openConnectionEditor(null)}
+              size="sm"
+              type="button"
+              variant="secondary"
+            >
+              <PlusIcon data-icon="inline-start" />
+              New connection
+            </Button>
+          </div>
+          {connections === null ? (
+            <p className="text-[13px] text-muted-foreground">
+              Loading connections…
+            </p>
+          ) : connections.length === 0 ? (
+            <p className="text-[13px] text-muted-foreground">
+              No connections yet — create one to configure the provider (e.g.
+              kind=llm with a base URL and API token).
+            </p>
+          ) : (
+            <Card className="p-0">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Kind</TableHead>
+                    <TableHead className="hidden md:table-cell">
+                      Base URL
+                    </TableHead>
+                    <TableHead className="hidden sm:table-cell">
+                      Token
+                    </TableHead>
+                    <TableHead className="w-24">Default</TableHead>
+                    <TableHead className="w-40 text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {connections.map((connection) => (
+                    <TableRow key={connection.id}>
+                      <TableCell>
+                        <span className="font-mono text-[13px]">
+                          {connection.name}
+                        </span>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline">{connection.kind}</Badge>
+                      </TableCell>
+                      <TableCell className="hidden max-w-56 truncate font-mono text-[12px] text-muted-foreground md:table-cell">
+                        {connection.baseUrl ?? "—"}
+                      </TableCell>
+                      <TableCell className="hidden font-mono text-[12px] text-muted-foreground sm:table-cell">
+                        {connection.hasToken
+                          ? (connection.apiToken ?? "••••")
+                          : "—"}
+                      </TableCell>
+                      <TableCell>
+                        {connection.isDefault ? (
+                          <Badge>default</Badge>
+                        ) : (
+                          <Button
+                            onClick={() => makeDefault(connection)}
+                            size="sm"
+                            type="button"
+                            variant="ghost"
+                          >
+                            Set default
+                          </Button>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-1">
+                          <Button
+                            onClick={() => openConnectionEditor(connection)}
+                            size="sm"
+                            type="button"
+                            variant="ghost"
+                          >
+                            Edit
+                          </Button>
+                          <Button
+                            aria-label={`Delete ${connection.name}`}
+                            onClick={() => removeConnection(connection.name)}
+                            size="icon"
+                            type="button"
+                            variant="ghost"
+                          >
+                            <TrashIcon data-icon="inline-start" />
+                          </Button>
+                        </div>
+                      </TableCell>
                     </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {connections.map((connection) => (
-                      <TableRow key={connection.id}>
-                        <TableCell>
-                          <span className="font-mono text-[13px]">
-                            {connection.name}
-                          </span>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline">{connection.kind}</Badge>
-                        </TableCell>
-                        <TableCell className="hidden max-w-56 truncate font-mono text-[12px] text-muted-foreground md:table-cell">
-                          {connection.baseUrl ?? "—"}
-                        </TableCell>
-                        <TableCell className="hidden font-mono text-[12px] text-muted-foreground sm:table-cell">
-                          {connection.hasToken
-                            ? (connection.apiToken ?? "••••")
-                            : "—"}
-                        </TableCell>
-                        <TableCell>
-                          {connection.isDefault ? (
-                            <Badge>default</Badge>
-                          ) : (
-                            <Button
-                              onClick={() => makeDefault(connection)}
-                              size="sm"
-                              type="button"
-                              variant="ghost"
-                            >
-                              Set default
-                            </Button>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex justify-end gap-1">
-                            <Button
-                              onClick={() => openConnectionEditor(connection)}
-                              size="sm"
-                              type="button"
-                              variant="ghost"
-                            >
-                              Edit
-                            </Button>
-                            <Button
-                              aria-label={`Delete ${connection.name}`}
-                              onClick={() => removeConnection(connection.name)}
-                              size="icon"
-                              type="button"
-                              variant="ghost"
-                            >
-                              <TrashIcon data-icon="inline-start" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </Card>
-            )}
-          </Card>
-        </>
+                  ))}
+                </TableBody>
+              </Table>
+            </Card>
+          )}
+        </Card>
       )}
       <div>
         <Button onClick={save}>Save model</Button>
@@ -1919,7 +1854,6 @@ export default function SettingsPage() {
         }
         setSettings((current) => ({
           ...current,
-          connectionsFallbackEnv: live.connections.fallbackEnv,
           execute: {
             enabled: live.execute.enabled,
             inheritEnv: live.execute.inheritEnv,
