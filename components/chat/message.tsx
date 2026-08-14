@@ -311,7 +311,7 @@ function PreviewMessage({
       <div
         className={cn(
           isUser
-            ? "flex items-end justify-end gap-1.5"
+            ? "flex w-full flex-col items-end gap-2"
             : "flex items-start gap-3",
         )}
       >
@@ -326,8 +326,10 @@ function PreviewMessage({
           <div className="flex min-w-0 flex-1 flex-col gap-2">{content}</div>
         ) : (
           <>
-            <div className="flex min-w-0 flex-col items-end gap-2">{parts}</div>
-            <MessageActions className="pb-0.5 opacity-0 transition-opacity group-hover/message:opacity-100">
+            {parts}
+            {/* MessageFooter pattern: actions below the bubble, aligned to
+                its right edge (px-3.5 matches the bubble's padding). */}
+            <MessageActions className="w-full justify-end px-3.5 pb-0.5 opacity-0 transition-opacity group-hover/message:opacity-100">
               <MessageAction label="Copy" onClick={handleCopy} tooltip="Copy">
                 <CopyIcon />
               </MessageAction>
