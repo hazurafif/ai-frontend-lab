@@ -74,6 +74,7 @@ import {
   type ModelConnection,
 } from "@/lib/models";
 import {
+  type AppSettings,
   createSkill as apiCreateSkill,
   createToolServer as apiCreateToolServer,
   deleteSkill as apiDeleteSkill,
@@ -81,10 +82,19 @@ import {
   deleteToolServer as apiDeleteToolServer,
   updateSkill as apiUpdateSkill,
   updateToolServer as apiUpdateToolServer,
+  type BackendConnection,
   backendSkillToSkill,
   backendToolToToolConfig,
+  CONNECTION_KINDS,
+  CONNECTION_NAME_RE,
+  type ConnectionInput,
+  type ConnectionKind,
+  createConnection,
   DEFAULT_SETTINGS,
+  deleteConnection,
+  fetchAppSettings,
   fetchBackendHealth,
+  fetchConnections,
   fetchKnowledgeBasesWithDocuments,
   fetchSkills,
   fetchToolServers,
@@ -99,6 +109,8 @@ import {
   type SkillFile,
   saveSettings,
   type ToolConfig,
+  updateAppSettings,
+  updateConnection,
 } from "@/lib/settings";
 import { cn } from "@/lib/utils";
 
@@ -836,20 +848,47 @@ function ToolsTab({
 function GeneralTab({
   settings,
   setSettings,
+  isAdmin,
+  appSettings,
+  onAppSettingsChange,
 }: {
   settings: SettingsState;
   setSettings: (updater: (current: SettingsState) => SettingsState) => void;
+  isAdmin: boolean;
+  // Live backend /settings values (admin-only) — carries the db/env source
+  // badges; null when the backend is offline or the user isn't an admin.
+  appSettings: AppSettings | null;
+  onAppSettingsChange: (next: AppSettings) => void;
 }) {
   const [prompt, setPrompt] = useState(settings.systemPrompt);
   const [interruptOn, setInterruptOn] = useState(settings.interruptOn);
   const [searxng, setSearxng] = useState(settings.searxngEnabled);
+  // Execute tool (backend-live via admin /settings).
+  const [executeEnabled, setExecuteEnabled] = useState(
+    settings.execute.enabled,
+  );
+  const [executeTimeout, setExecuteTimeout] = useState(
+    String(settings.execute.maxTimeout),
+  );
+  const [executeInheritEnv, setExecuteInheritEnv] = useState(
+    settings.execute.inheritEnv,
+  );
+  const [savingExecute, setSavingExecute] = useState(false);
 
   // Sync local draft when settings load/change from storage.
   useEffect(() => {
     setPrompt(settings.systemPrompt);
     setInterruptOn(settings.interruptOn);
     setSearxng(settings.searxngEnabled);
-  }, [settings.systemPrompt, settings.interruptOn, settings.searxngEnabled]);
+    setExecuteEnabled(settings.execute.enabled);
+    setExecuteTimeout(String(settings.execute.maxTimeout));
+    setExecuteInheritEnv(settings.execute.inheritEnv);
+  }, [
+    settings.systemPrompt,
+    settings.interruptOn,
+    settings.searxngEnabled,
+    settings.execute,
+  ]);
 
   const save = () => {
     setSettings((current) => ({
@@ -859,6 +898,44 @@ function GeneralTab({
       searxngEnabled: searxng,
     }));
     toast.success("Settings saved");
+  };
+
+  const saveExecute = async () => {
+    const seconds = Number(executeTimeout);
+    if (!Number.isInteger(seconds) || seconds < 1 || seconds > 86400) {
+      toast.error(
+        "Max timeout must be a whole number of seconds between 1 and 86400.",
+      );
+      return;
+    }
+    setSavingExecute(true);
+    try {
+      const next = await updateAppSettings({
+        execute: {
+          enabled: executeEnabled,
+          maxTimeout: seconds,
+          inheritEnv: executeInheritEnv,
+        },
+      });
+      onAppSettingsChange(next);
+      setSettings((current) => ({
+        ...current,
+        execute: {
+          enabled: next.execute.enabled,
+          maxTimeout: next.execute.maxTimeout,
+          inheritEnv: next.execute.inheritEnv,
+        },
+      }));
+      toast.success("Execute settings saved — active on the next run");
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Failed to save execute settings",
+      );
+    } finally {
+      setSavingExecute(false);
+    }
   };
 
   return (
@@ -910,6 +987,74 @@ function GeneralTab({
           />
         </div>
       </Card>
+      {isAdmin && (
+        <Card className="flex flex-col gap-4">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex flex-col gap-0.5">
+              <span className="text-sm font-medium">Execute tool</span>
+              <span className="text-[13px] text-muted-foreground">
+                Let the agent run shell commands on the host (LocalShellBackend
+                instead of the safe store backend). Unrestricted — trusted
+                environments only; pair it with human-in-the-loop for approval.
+              </span>
+            </div>
+            <Switch
+              checked={executeEnabled}
+              onCheckedChange={setExecuteEnabled}
+              aria-label="Execute tool"
+            />
+          </div>
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex max-w-sm flex-col gap-0.5">
+              <span className="text-sm font-medium">Max timeout (seconds)</span>
+              <span className="text-[13px] text-muted-foreground">
+                Cap on a single command&apos;s runtime (1–86400).
+              </span>
+            </div>
+            <Input
+              aria-label="Max timeout"
+              className="w-32 text-right"
+              max={86400}
+              min={1}
+              onChange={(event) => setExecuteTimeout(event.target.value)}
+              type="number"
+              value={executeTimeout}
+            />
+          </div>
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex flex-col gap-0.5">
+              <span className="text-sm font-medium">Inherit environment</span>
+              <span className="text-[13px] text-muted-foreground">
+                Expose the server&apos;s environment variables to executed
+                commands.
+              </span>
+            </div>
+            <Switch
+              checked={executeInheritEnv}
+              onCheckedChange={setExecuteInheritEnv}
+              aria-label="Inherit environment"
+            />
+          </div>
+          <div className="flex items-center gap-3">
+            <Button
+              disabled={savingExecute}
+              onClick={saveExecute}
+              size="sm"
+              type="button"
+            >
+              {savingExecute ? "Saving…" : "Save execution settings"}
+            </Button>
+            {appSettings && (
+              <Badge
+                className="font-mono text-[11px] text-muted-foreground"
+                variant="outline"
+              >
+                source: {appSettings.execute.source}
+              </Badge>
+            )}
+          </div>
+        </Card>
+      )}
       <div>
         <Button onClick={save}>Save changes</Button>
       </div>
@@ -922,9 +1067,17 @@ function GeneralTab({
 function ModelTab({
   settings,
   setSettings,
+  isAdmin,
+  appSettings,
+  onAppSettingsChange,
 }: {
   settings: SettingsState;
   setSettings: (updater: (current: SettingsState) => SettingsState) => void;
+  isAdmin: boolean;
+  // Live backend /settings values (admin-only) — carries the db/env source
+  // badges; null when the backend is offline or the user isn't an admin.
+  appSettings: AppSettings | null;
+  onAppSettingsChange: (next: AppSettings) => void;
 }) {
   const [modelId, setModelId] = useState(settings.model);
   const [open, setOpen] = useState(false);
@@ -939,6 +1092,20 @@ function ModelTab({
     ok: boolean;
     message: string;
   } | null>(null);
+  // Backend connection policy (admin /settings): .env fallback toggle.
+  const [fallbackEnv, setFallbackEnv] = useState(
+    settings.connectionsFallbackEnv,
+  );
+  const [savingPolicy, setSavingPolicy] = useState(false);
+  // Saved provider connections (admin /connections); null = not loaded
+  // (non-admin, backend offline, or still fetching).
+  const [connections, setConnections] = useState<BackendConnection[] | null>(
+    null,
+  );
+  // Connection editor dialog state.
+  const [editing, setEditing] = useState<BackendConnection | null>(null);
+  const [draft, setDraft] = useState<ConnectionInput | null>(null);
+  const [savingConnection, setSavingConnection] = useState(false);
   // Sync the draft whenever a saved connection arrives/changes (settings
   // load from localStorage after mount; saves persist via the update()
   // wrapper in the page).
@@ -1053,6 +1220,164 @@ function ModelTab({
     );
   };
 
+  // Backend connection policy + saved connections (admin-only endpoints).
+  useEffect(() => {
+    setFallbackEnv(settings.connectionsFallbackEnv);
+  }, [settings.connectionsFallbackEnv]);
+
+  useEffect(() => {
+    if (!isAdmin) {
+      return;
+    }
+    let cancelled = false;
+    fetchConnections()
+      .then((list) => {
+        if (!cancelled) {
+          setConnections(list);
+        }
+      })
+      .catch(() => {
+        // Backend offline — leave the list empty.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isAdmin]);
+
+  const refreshConnections = async () => {
+    try {
+      setConnections(await fetchConnections());
+    } catch {
+      // Backend offline — keep the cached list.
+    }
+  };
+
+  const savePolicy = async () => {
+    setSavingPolicy(true);
+    try {
+      const next = await updateAppSettings({
+        connections: { fallbackEnv },
+      });
+      onAppSettingsChange(next);
+      setSettings((current) => ({
+        ...current,
+        connectionsFallbackEnv: next.connections.fallbackEnv,
+      }));
+      toast.success("Connection policy saved — active on the next run");
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Failed to save connection policy",
+      );
+    } finally {
+      setSavingPolicy(false);
+    }
+  };
+
+  const openConnectionEditor = (connection: BackendConnection | null) => {
+    setEditing(connection);
+    setDraft(
+      connection
+        ? {
+            apiToken: "", // write-only — never prefill the masked token
+            baseUrl: connection.baseUrl ?? "",
+            // PUT is a full replace — carry provider options through so
+            // saving the dialog never drops them (e.g. the embeddings
+            // model name).
+            extra: connection.extra,
+            isDefault: connection.isDefault,
+            kind: connection.kind,
+            name: connection.name,
+          }
+        : {
+            apiToken: "",
+            baseUrl: "",
+            isDefault: false,
+            kind: "llm",
+            name: "",
+          },
+    );
+  };
+
+  const saveConnectionEditor = async () => {
+    if (!draft) {
+      return;
+    }
+    const name = draft.name.trim();
+    if (!CONNECTION_NAME_RE.test(name)) {
+      toast.error(
+        "Invalid name — lowercase letters, numbers, and dots/underscores/hyphens between segments (e.g. my-vllm).",
+      );
+      return;
+    }
+    const payload: ConnectionInput = {
+      ...draft,
+      apiToken: draft.apiToken?.trim() || undefined,
+      baseUrl: draft.baseUrl?.trim() || undefined,
+      name,
+    };
+    setSavingConnection(true);
+    try {
+      if (editing) {
+        await updateConnection(editing.name, payload);
+      } else {
+        await createConnection(payload);
+      }
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to save connection",
+      );
+      setSavingConnection(false);
+      return;
+    }
+    setSavingConnection(false);
+    setEditing(null);
+    setDraft(null);
+    await refreshConnections();
+    toast.success(editing ? "Connection updated" : "Connection created");
+  };
+
+  const removeConnection = async (name: string) => {
+    try {
+      await deleteConnection(name);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to delete connection",
+      );
+      return;
+    }
+    setConnections((current) =>
+      current ? current.filter((c) => c.name !== name) : current,
+    );
+    toast.success("Connection deleted");
+  };
+
+  const makeDefault = async (connection: BackendConnection) => {
+    try {
+      await updateConnection(connection.name, {
+        baseUrl: connection.baseUrl ?? undefined,
+        // Full replace — carry provider options and keep the stored token
+        // (apiToken omitted on purpose).
+        extra: connection.extra,
+        isDefault: true,
+        kind: connection.kind,
+        name: connection.name,
+      });
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : `Failed to set ${connection.name} as default`,
+      );
+      return;
+    }
+    await refreshConnections();
+    toast.success(
+      `${connection.name} is now the default ${connection.kind} connection`,
+    );
+  };
+
   return (
     <div className="flex max-w-2xl flex-col gap-4">
       <Card>
@@ -1080,7 +1405,9 @@ function ModelTab({
               Where the model list below comes from. Server default uses the
               source configured in the server environment (.env.local); the
               others use your key to list models via the source&apos;s
-              /v1/models endpoint.
+              /v1/models endpoint. The agent&apos;s runtime connection (what
+              chat requests actually use) is resolved by the backend from its
+              saved Connections below — .env is only an opt-in fallback.
             </FieldDescription>
           </Field>
           {connDraft.provider !== "default" && (
@@ -1236,9 +1563,318 @@ function ModelTab({
           </Field>
         </FieldGroup>
       </Card>
+      {isAdmin && (
+        <>
+          <Card className="flex flex-col gap-4">
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex flex-col gap-0.5">
+                <span className="text-sm font-medium">
+                  Fall back to .env credentials
+                </span>
+                <span className="text-[13px] text-muted-foreground">
+                  When no saved connection of a kind exists, use .env
+                  credentials instead of failing. Off (default) — the agent
+                  fails loudly until a default connection is created below.
+                </span>
+              </div>
+              <Switch
+                checked={fallbackEnv}
+                onCheckedChange={setFallbackEnv}
+                aria-label="Fall back to .env credentials"
+              />
+            </div>
+            <div className="flex items-center gap-3">
+              <Button
+                disabled={savingPolicy}
+                onClick={savePolicy}
+                size="sm"
+                type="button"
+              >
+                {savingPolicy ? "Saving…" : "Save policy"}
+              </Button>
+              {appSettings && (
+                <Badge
+                  className="font-mono text-[11px] text-muted-foreground"
+                  variant="outline"
+                >
+                  source: {appSettings.connections.source}
+                </Badge>
+              )}
+            </div>
+          </Card>
+          <Card className="flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-0.5">
+                <span className="text-sm font-medium">Connections</span>
+                <span className="text-[13px] text-muted-foreground">
+                  Provider credentials the backend resolves per kind (one
+                  default each) for the agent&apos;s LLM, embeddings, MCP
+                  servers, Weaviate and SearXNG.
+                </span>
+              </div>
+              <Button
+                onClick={() => openConnectionEditor(null)}
+                size="sm"
+                type="button"
+                variant="secondary"
+              >
+                <PlusIcon data-icon="inline-start" />
+                New connection
+              </Button>
+            </div>
+            {connections === null ? (
+              <p className="text-[13px] text-muted-foreground">
+                Loading connections…
+              </p>
+            ) : connections.length === 0 ? (
+              <p className="text-[13px] text-muted-foreground">
+                No connections yet — create one to configure the provider (e.g.
+                kind=llm with a base URL and API token). Without a default llm
+                connection the agent refuses to run unless .env fallback is
+                enabled.
+              </p>
+            ) : (
+              <Card className="p-0">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Kind</TableHead>
+                      <TableHead className="hidden md:table-cell">
+                        Base URL
+                      </TableHead>
+                      <TableHead className="hidden sm:table-cell">
+                        Token
+                      </TableHead>
+                      <TableHead className="w-24">Default</TableHead>
+                      <TableHead className="w-40 text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {connections.map((connection) => (
+                      <TableRow key={connection.id}>
+                        <TableCell>
+                          <span className="font-mono text-[13px]">
+                            {connection.name}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline">{connection.kind}</Badge>
+                        </TableCell>
+                        <TableCell className="hidden max-w-56 truncate font-mono text-[12px] text-muted-foreground md:table-cell">
+                          {connection.baseUrl ?? "—"}
+                        </TableCell>
+                        <TableCell className="hidden font-mono text-[12px] text-muted-foreground sm:table-cell">
+                          {connection.hasToken
+                            ? (connection.apiToken ?? "••••")
+                            : "—"}
+                        </TableCell>
+                        <TableCell>
+                          {connection.isDefault ? (
+                            <Badge>default</Badge>
+                          ) : (
+                            <Button
+                              onClick={() => makeDefault(connection)}
+                              size="sm"
+                              type="button"
+                              variant="ghost"
+                            >
+                              Set default
+                            </Button>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-1">
+                            <Button
+                              onClick={() => openConnectionEditor(connection)}
+                              size="sm"
+                              type="button"
+                              variant="ghost"
+                            >
+                              Edit
+                            </Button>
+                            <Button
+                              aria-label={`Delete ${connection.name}`}
+                              onClick={() => removeConnection(connection.name)}
+                              size="icon"
+                              type="button"
+                              variant="ghost"
+                            >
+                              <TrashIcon data-icon="inline-start" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </Card>
+            )}
+          </Card>
+        </>
+      )}
       <div>
         <Button onClick={save}>Save model</Button>
       </div>
+
+      <Dialog
+        open={draft !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditing(null);
+            setDraft(null);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>
+              {editing ? `Edit ${editing.name}` : "New connection"}
+            </DialogTitle>
+          </DialogHeader>
+          <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor="connection-name">Name</FieldLabel>
+              <Input
+                disabled={editing !== null}
+                id="connection-name"
+                onChange={(event) =>
+                  setDraft((current) =>
+                    current
+                      ? { ...current, name: event.target.value }
+                      : current,
+                  )
+                }
+                placeholder="e.g. my-vllm"
+                value={draft?.name ?? ""}
+              />
+              <FieldDescription>
+                The identifier the backend resolves (e.g. for the default llm
+                connection). Lowercase letters, numbers, and
+                dots/underscores/hyphens between segments.
+              </FieldDescription>
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="connection-kind">Kind</FieldLabel>
+              <Select
+                onValueChange={(value) => {
+                  if (value === null) {
+                    return;
+                  }
+                  setDraft((current) =>
+                    current
+                      ? {
+                          ...current,
+                          kind: value as ConnectionKind,
+                        }
+                      : current,
+                  );
+                }}
+                value={draft?.kind ?? "llm"}
+              >
+                <SelectTrigger className="w-full" id="connection-kind">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {CONNECTION_KINDS.map((kind) => (
+                    <SelectItem key={kind} value={kind}>
+                      {kind}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <FieldDescription>
+                What the connection is used for: llm (agent model), embeddings
+                (KB vectors), mcp, weaviate or searxng.
+              </FieldDescription>
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="connection-base-url">Base URL</FieldLabel>
+              <Input
+                id="connection-base-url"
+                onChange={(event) =>
+                  setDraft((current) =>
+                    current
+                      ? { ...current, baseUrl: event.target.value }
+                      : current,
+                  )
+                }
+                placeholder="https://your-endpoint/v1"
+                value={draft?.baseUrl ?? ""}
+              />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="connection-api-token">API token</FieldLabel>
+              <Input
+                id="connection-api-token"
+                onChange={(event) =>
+                  setDraft((current) =>
+                    current
+                      ? { ...current, apiToken: event.target.value }
+                      : current,
+                  )
+                }
+                placeholder={
+                  editing?.hasToken
+                    ? "Leave empty to keep the stored token"
+                    : "sk-…"
+                }
+                type="password"
+                value={draft?.apiToken ?? ""}
+              />
+              <FieldDescription>
+                Write-only — never shown again after saving; leaving it empty
+                when editing keeps the stored token.
+              </FieldDescription>
+            </Field>
+            <Field>
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-sm font-medium">
+                    Default connection
+                  </span>
+                  <span className="text-[13px] text-muted-foreground">
+                    Resolved when multiple connections of this kind exist (one
+                    default per kind).
+                  </span>
+                </div>
+                <Switch
+                  checked={Boolean(draft?.isDefault)}
+                  onCheckedChange={(checked) =>
+                    setDraft((current) =>
+                      current ? { ...current, isDefault: checked } : current,
+                    )
+                  }
+                  aria-label="Default connection"
+                />
+              </div>
+            </Field>
+          </FieldGroup>
+          <DialogFooter>
+            <Button
+              onClick={() => {
+                setEditing(null);
+                setDraft(null);
+              }}
+              type="button"
+              variant="outline"
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={savingConnection}
+              onClick={saveConnectionEditor}
+              type="button"
+            >
+              {savingConnection
+                ? "Saving…"
+                : editing
+                  ? "Save connection"
+                  : "Create connection"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -1251,6 +1887,10 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState<SettingsState>(DEFAULT_SETTINGS);
   const [loaded, setLoaded] = useState(false);
   const [backendOnline, setBackendOnline] = useState(false);
+  // Live backend /settings (admin-only): execute tool + connection policy,
+  // with their db/env sources for the badges in the tabs.
+  const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
+  const isAdmin = user?.role === "admin";
 
   useEffect(() => {
     const stored = loadSettings();
@@ -1303,6 +1943,38 @@ export default function SettingsPage() {
     });
   }, []);
 
+  // Backend-live settings (admin-only /settings): the DB wins over .env, so
+  // when the backend is online its values replace the cached ones (same
+  // policy as skills/tools). Non-admins keep the cached/local defaults.
+  useEffect(() => {
+    if (!isAdmin) {
+      return;
+    }
+    let cancelled = false;
+    fetchAppSettings()
+      .then((live) => {
+        if (cancelled) {
+          return;
+        }
+        setAppSettings(live);
+        setSettings((current) => ({
+          ...current,
+          connectionsFallbackEnv: live.connections.fallbackEnv,
+          execute: {
+            enabled: live.execute.enabled,
+            inheritEnv: live.execute.inheritEnv,
+            maxTimeout: live.execute.maxTimeout,
+          },
+        }));
+      })
+      .catch(() => {
+        // Backend offline / not reachable — keep the local cache.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isAdmin]);
+
   const update = (updater: (current: SettingsState) => SettingsState) => {
     setSettings((current) => {
       const next = updater(current);
@@ -1338,10 +2010,22 @@ export default function SettingsPage() {
               page layout; long content scrolls inside the panel. */}
           <div className="min-h-0 flex-1 overflow-y-auto pr-1">
             <TabsContent value="general">
-              <GeneralTab settings={settings} setSettings={update} />
+              <GeneralTab
+                appSettings={appSettings}
+                isAdmin={isAdmin}
+                onAppSettingsChange={setAppSettings}
+                settings={settings}
+                setSettings={update}
+              />
             </TabsContent>
             <TabsContent value="model">
-              <ModelTab settings={settings} setSettings={update} />
+              <ModelTab
+                appSettings={appSettings}
+                isAdmin={isAdmin}
+                onAppSettingsChange={setAppSettings}
+                settings={settings}
+                setSettings={update}
+              />
             </TabsContent>
             {user?.role === "admin" && (
               <TabsContent value="skills">

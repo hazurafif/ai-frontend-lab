@@ -161,11 +161,20 @@ lib/
   persists them in the LangGraph store; skill changes apply on the next run,
   tool changes after `POST /agent/tools/reconnect`). The web-search toggle is
   also live — it is sent as `enableSearch` in every `/api/chat` request body
-  (backend overrides `SEARXNG_ENABLED` per request). The remaining settings
-  (model, prompt, interrupt toggle) are still local-only until backend
-  `/settings` endpoints exist. Note: the knowledge-base tab calls
-  `/api/agent/knowledge-bases`, which the backend has **not** implemented
-  yet — those fetches 404 until the backend adds the endpoints.
+  (backend overrides `SEARXNG_ENABLED` per request). The **execute tool**
+  (enabled/max timeout/inherit env) and the **connection policy**
+  (`connections.fallback_env`) are live too — admin-only `GET|PUT /settings`
+  proxied at `app/api/settings/` (DB `app_settings` table wins over .env;
+  `source: db|env` in the response drives the badges; every mutation rebuilds
+  the backend's agent graphs, so changes apply on the next run). Saved
+  provider **connections** (llm/embeddings/mcp/weaviate/searxng, one default
+  per kind, write-only tokens) are managed in the Model tab via
+  `app/api/connections` → backend `/connections`; without a default `llm`
+  connection the agent fails loudly unless `.env` fallback is enabled. The
+  remaining settings (model, prompt, interrupt toggle) are still local-only
+  until backend `/settings` endpoints exist. Note: the knowledge-base tab
+  calls `/api/agent/knowledge-bases`, which the backend has **not**
+  implemented yet — those fetches 404 until the backend adds the endpoints.
 - `/agent/*` endpoints are **admin-only** on the backend, so the Skills and
   Tools tabs are admin-gated in the UI (same as Users).
 - Tabs: General | Model | Skills | Tools | Account (+ Users for admins).

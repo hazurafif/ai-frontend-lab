@@ -2,10 +2,13 @@
 //
 // Skills and MCP tool servers are backed by the backend's /agent/* CRUD
 // endpoints (via the /api/agent proxy) — the backend persists them in the
-// LangGraph store and applies them to the agent on the next run. The same
-// data is also mirrored to localStorage as an offline fallback/cache, and
-// the remaining settings (model, prompt, toggles) are still local-only
-// until the backend /settings endpoints exist.
+// LangGraph store and applies them to the agent on the next run. The
+// execute-tool settings and the connection policy are backed by the
+// backend's admin-only GET|PUT /settings (via the /api/settings proxy),
+// and saved provider connections by /api/connections — all DB-backed, DB
+// wins over .env. The same data is also mirrored to localStorage as an
+// offline fallback/cache, and the remaining settings (model, prompt,
+// toggles) are still local-only.
 
 import { fetchWithAuth } from "@/lib/auth";
 import { SETTINGS_CHANGED_EVENT } from "@/lib/constants";
@@ -144,6 +147,156 @@ export const THINKING_EFFORTS: ThinkingEffort[] = [
 
 export const DEFAULT_THINKING_EFFORT: ThinkingEffort = "medium";
 
+// --- Runtime app settings (GET|PUT /settings, admin-only) -------------------
+//
+// The backend's `app_settings` store (Postgres `app_settings` table) holds
+// runtime overrides for .env defaults:
+//
+//   execute     → { enabled, max_timeout, inherit_env }  (execute tool)
+//   connections → { fallback_env }                       (connection policy)
+//
+// DB rows win over .env; `source` reports which one the effective value
+// came from. Every PUT rebuilds the backend's agent graphs, so changes
+// apply on the next run without a restart. Non-admin users only ever see
+// the cached/local defaults — the endpoints are admin-only on the backend.
+
+export type SettingsSource = "db" | "env";
+
+export type ExecuteSettings = {
+  enabled: boolean;
+  // Per-command timeout cap in seconds (1–86400).
+  maxTimeout: number;
+  // Whether executed commands inherit the server process environment.
+  inheritEnv: boolean;
+  source: SettingsSource;
+};
+
+export type ConnectionsPolicy = {
+  // Allow .env credentials when no DB connection of a kind exists.
+  // False (default) = the DB connection is mandatory: the agent LLM and KB
+  // embeddings fail loudly instead of silently reading .env keys.
+  fallbackEnv: boolean;
+  source: SettingsSource;
+};
+
+export type AppSettings = {
+  execute: ExecuteSettings;
+  connections: ConnectionsPolicy;
+};
+
+export type AppSettingsPatch = {
+  execute?: Partial<
+    Pick<ExecuteSettings, "enabled" | "maxTimeout" | "inheritEnv">
+  >;
+  connections?: Partial<Pick<ConnectionsPolicy, "fallbackEnv">>;
+};
+
+export async function fetchAppSettings(): Promise<AppSettings> {
+  const res = await adminFetch("/settings");
+  return (await res.json()) as AppSettings;
+}
+
+export async function updateAppSettings(
+  patch: AppSettingsPatch,
+): Promise<AppSettings> {
+  const res = await adminFetch("/settings", {
+    method: "PUT",
+    body: JSON.stringify({
+      execute: patch.execute
+        ? {
+            enabled: patch.execute.enabled,
+            max_timeout: patch.execute.maxTimeout,
+            inherit_env: patch.execute.inheritEnv,
+          }
+        : undefined,
+      connections: patch.connections
+        ? { fallback_env: patch.connections.fallbackEnv }
+        : undefined,
+    }),
+  });
+  return (await res.json()) as AppSettings;
+}
+
+// --- Connections (GET/POST /connections, GET/PUT/DELETE /connections/{name}) -
+//
+// Saved provider credentials (base URL + API token) the backend resolves
+// per kind (one default per kind). `api_token` is write-only — outputs are
+// masked and a PUT with an omitted token keeps the stored one. Admin-only.
+
+export type ConnectionKind =
+  | "llm"
+  | "embeddings"
+  | "mcp"
+  | "weaviate"
+  | "searxng";
+
+export const CONNECTION_KINDS: ConnectionKind[] = [
+  "llm",
+  "embeddings",
+  "mcp",
+  "weaviate",
+  "searxng",
+];
+
+// Backend CONNECTION_NAME_PATTERN: lowercase alnum, dot/underscore/hyphen
+// separators (e.g. "my-vllm", "openai_2").
+export const CONNECTION_NAME_RE = /^[a-z0-9]+(?:[._-][a-z0-9]+)*$/;
+
+export type BackendConnection = {
+  id: string;
+  name: string;
+  kind: ConnectionKind;
+  baseUrl: string | null;
+  // Masked token (first 4 + last 4 chars); full value is write-only.
+  apiToken: string | null;
+  hasToken: boolean;
+  extra: Record<string, unknown>;
+  isDefault: boolean;
+  createdAt: string | null;
+  updatedAt: string | null;
+};
+
+export type ConnectionInput = {
+  name: string;
+  kind: ConnectionKind;
+  baseUrl?: string;
+  apiToken?: string;
+  extra?: Record<string, unknown>;
+  isDefault?: boolean;
+};
+
+export async function fetchConnections(): Promise<BackendConnection[]> {
+  const res = await adminFetch("/connections");
+  return (await res.json()) as BackendConnection[];
+}
+
+export async function createConnection(
+  input: ConnectionInput,
+): Promise<BackendConnection> {
+  const res = await adminFetch("/connections", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  return (await res.json()) as BackendConnection;
+}
+
+export async function updateConnection(
+  name: string,
+  input: ConnectionInput,
+): Promise<BackendConnection> {
+  const res = await adminFetch(`/connections/${encodeURIComponent(name)}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+  return (await res.json()) as BackendConnection;
+}
+
+export async function deleteConnection(name: string): Promise<void> {
+  await adminFetch(`/connections/${encodeURIComponent(name)}`, {
+    method: "DELETE",
+  });
+}
+
 export type SettingsState = {
   model: string;
   thinkingEffort: ThinkingEffort;
@@ -151,9 +304,17 @@ export type SettingsState = {
   interruptOn: boolean;
   searxngEnabled: boolean;
   // Completion source for the model selector (null = server-configured
-  // env source via MODELS_BASE_URL / MODELS_API_KEY). Local-only until the
-  // backend has /settings endpoints.
+  // env source via MODELS_BASE_URL / MODELS_API_KEY).
   modelConnection: ModelConnection | null;
+  // Backend-live settings (admin-only /settings): execute tool + connection
+  // policy. Mirrored to localStorage as an offline cache; the backend's
+  // /settings values win when it's online.
+  execute: {
+    enabled: boolean;
+    maxTimeout: number;
+    inheritEnv: boolean;
+  };
+  connectionsFallbackEnv: boolean;
   skills: Skill[];
   tools: ToolConfig[];
   knowledgeBases: KnowledgeBase[];
@@ -178,6 +339,10 @@ export const DEFAULT_SETTINGS: SettingsState = {
     "You are a helpful AI assistant running inside a backend service. Be concise and direct.",
   interruptOn: false,
   searxngEnabled: false,
+  // Backend .env defaults (EXECUTE_ENABLED=false, EXECUTE_MAX_TIMEOUT=3600,
+  // EXECUTE_INHERIT_ENV=false, CONNECTION_FALLBACK_ENV=false).
+  execute: { enabled: false, maxTimeout: 3600, inheritEnv: false },
+  connectionsFallbackEnv: false,
   skills: [
     {
       name: "code-review",
@@ -210,6 +375,7 @@ export function loadSettings(): SettingsState {
       return DEFAULT_SETTINGS;
     }
     const parsed = JSON.parse(raw) as Partial<SettingsState>;
+    const execute = parsed.execute ?? DEFAULT_SETTINGS.execute;
     return {
       ...DEFAULT_SETTINGS,
       ...parsed,
@@ -219,6 +385,18 @@ export function loadSettings(): SettingsState {
         parsed.model ??
         DEFAULT_SETTINGS.model,
       modelConnection: parsed.modelConnection ?? null,
+      execute: {
+        enabled: Boolean(execute.enabled),
+        maxTimeout:
+          Number.isFinite(execute.maxTimeout) && (execute.maxTimeout ?? 0) > 0
+            ? execute.maxTimeout
+            : DEFAULT_SETTINGS.execute.maxTimeout,
+        inheritEnv: Boolean(execute.inheritEnv),
+      },
+      connectionsFallbackEnv: Boolean(
+        parsed.connectionsFallbackEnv ??
+          DEFAULT_SETTINGS.connectionsFallbackEnv,
+      ),
       skills: (parsed.skills ?? DEFAULT_SETTINGS.skills).map(migrateSkill),
       tools: (parsed.tools ?? DEFAULT_SETTINGS.tools).map(migrateTool),
       knowledgeBases: (parsed.knowledgeBases ?? []).map(migrateKnowledgeBase),
@@ -381,6 +559,33 @@ async function agentFetch(path: string, init?: RequestInit): Promise<Response> {
   let res: Response;
   try {
     res = await fetchWithAuth(`/api/agent${path}`, {
+      ...init,
+      headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+    });
+  } catch {
+    throw new Error("Backend unreachable.");
+  }
+  if (!res.ok) {
+    let detail = `Request failed (${res.status})`;
+    try {
+      const body = (await res.json()) as { detail?: string };
+      if (body.detail) {
+        detail = body.detail;
+      }
+    } catch {
+      // non-JSON error body — keep the default message
+    }
+    throw new Error(detail);
+  }
+  return res;
+}
+
+// JSON helper for the admin-only app settings + connections endpoints
+// (proxied at /api/settings and /api/connections).
+async function adminFetch(path: string, init?: RequestInit): Promise<Response> {
+  let res: Response;
+  try {
+    res = await fetchWithAuth(`/api${path}`, {
       ...init,
       headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
     });
