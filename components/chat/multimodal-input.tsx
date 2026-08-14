@@ -165,7 +165,7 @@ export function MultimodalInput({
         />
 
         {!inputFocused && !input && (
-          <kbd className="pointer-events-none shrink-0 select-none rounded-md border border-border/60 bg-muted/60 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground/70">
+          <kbd className="pointer-events-none shrink-0 select-none self-center rounded-md border border-border/60 bg-muted/60 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground/70">
             {isMac ? "⌘K" : "Ctrl K"}
           </kbd>
         )}
