@@ -1,8 +1,8 @@
 "use client";
 
-import { LoaderCircleIcon, PencilIcon } from "lucide-react";
+import { LoaderCircleIcon, PencilIcon, SparklesIcon } from "lucide-react";
 import Link from "next/link";
-import { memo, useCallback } from "react";
+import { memo, useCallback, useState } from "react";
 import { toast } from "@/components/chat/toast";
 import { createChatShare } from "@/lib/share";
 import type { ThreadStatus } from "@/lib/threads";
@@ -23,19 +23,25 @@ import { MoreHorizontalIcon, ShareIcon, TrashIcon } from "./icons";
 const PureChatItem = ({
   chat,
   isActive,
+  isAuthenticated,
   onDelete,
   onRename,
+  onRegenerateTitle,
   setOpenMobile,
   status = null,
 }: {
   chat: ChatHistoryItem;
   isActive: boolean;
+  /** Server-backed actions (generate title) need a signed-in account. */
+  isAuthenticated: boolean;
   onDelete: (chatId: string) => void;
   onRename: (chat: ChatHistoryItem) => void;
+  onRegenerateTitle: (chat: ChatHistoryItem) => void;
   setOpenMobile: (open: boolean) => void;
   /** Run status from the durable-chat store; "running" shows a spinner. */
   status?: ThreadStatus;
 }) => {
+  const [titlePending, setTitlePending] = useState(false);
   const closeMobile = useCallback(() => {
     setOpenMobile(false);
   }, [setOpenMobile]);
@@ -47,6 +53,18 @@ const PureChatItem = ({
   const handleRename = useCallback(() => {
     onRename(chat);
   }, [chat, onRename]);
+
+  const handleRegenerateTitle = useCallback(async () => {
+    if (titlePending) {
+      return;
+    }
+    setTitlePending(true);
+    try {
+      await onRegenerateTitle(chat);
+    } finally {
+      setTitlePending(false);
+    }
+  }, [chat, onRegenerateTitle, titlePending]);
 
   const handleShare = useCallback(async () => {
     try {
@@ -117,6 +135,21 @@ const PureChatItem = ({
             <PencilIcon />
             <span>Rename</span>
           </DropdownMenuItem>
+          {isAuthenticated && (
+            <DropdownMenuItem
+              onClick={handleRegenerateTitle}
+              disabled={titlePending}
+            >
+              {titlePending ? (
+                <LoaderCircleIcon className="animate-spin" />
+              ) : (
+                <SparklesIcon />
+              )}
+              <span>
+                {titlePending ? "Generating title…" : "Generate title"}
+              </span>
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem onClick={handleDelete} variant="destructive">
             <TrashIcon />
             <span>Delete</span>
@@ -129,6 +162,12 @@ const PureChatItem = ({
 
 export const ChatItem = memo(PureChatItem, (prevProps, nextProps) => {
   if (prevProps.isActive !== nextProps.isActive) {
+    return false;
+  }
+  if (prevProps.isAuthenticated !== nextProps.isAuthenticated) {
+    return false;
+  }
+  if (prevProps.chat.title !== nextProps.chat.title) {
     return false;
   }
   if (prevProps.chat.shareToken !== nextProps.chat.shareToken) {
