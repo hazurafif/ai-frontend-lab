@@ -1,14 +1,16 @@
 "use client";
 
 import { ChevronDownIcon, Loader2Icon, TriangleAlertIcon, WrenchIcon } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import { extractPrefabPayload } from "@/lib/prefab";
 import { cn } from "@/lib/utils";
+import { PrefabApp } from "./prefab-app";
 
 /**
  * The AI SDK tool UI part produced from `tool-input-*` / `tool-output-*`
@@ -75,7 +77,13 @@ export function ToolCard({ part }: { part: ToolUIPart }) {
   const [open, setOpen] = useState(true);
   const status = statusOf(part.state);
   const toolName = part.type.replace(/^tool-/, "");
-  const output = part.output !== undefined ? displayOutput(part.output) : undefined;
+  // FastMCP Prefab apps ship their UI as `structuredContent` in the tool
+  // output — render those with the official renderer instead of raw JSON.
+  const prefab = useMemo(() => extractPrefabPayload(part.output), [part.output]);
+  const output =
+    prefab === null && part.output !== undefined
+      ? displayOutput(part.output)
+      : undefined;
 
   return (
     <Collapsible
@@ -111,6 +119,7 @@ export function ToolCard({ part }: { part: ToolUIPart }) {
               </pre>
             </div>
           )}
+          {prefab !== null && <PrefabApp payload={prefab} />}
           {output !== undefined && (
             <div className="flex flex-col gap-1">
               <span className="text-[11px] font-medium text-muted-foreground">

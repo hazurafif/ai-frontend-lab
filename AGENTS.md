@@ -108,6 +108,21 @@ lib/
   input-available → output-available/error) → rendered by
   `components/ai-elements/tool-card.tsx`. Subagents arrive as `custom` parts
   → `components/ai-elements/subagent-card.tsx`.
+- **FastMCP prefab apps:** tools marked `app=True` return their UI as a
+  `structuredContent` envelope (`{view, state, _meta}`); via langchain's
+  MCP adapter it arrives in `tool-output-available` as
+  `output.artifact.structured_content`. `lib/prefab.ts` detects it
+  (`extractPrefabPayload`) and `components/ai-elements/prefab-app.tsx`
+  renders it with the official Prefab renderer (pinned on jsDelivr — keep
+  `PREFAB_RENDERER_VERSION` in sync with the servers' `prefab-ui` package)
+  inside a sandboxed iframe speaking the MCP Apps postMessage protocol
+  (`ui/initialize` → `ui/notifications/tool-result` → `size-changed`).
+  App-initiated `tools/call` (interactive apps, e.g. FastMCPApp backends)
+  is forwarded by the host through `app/api/mcp/[[...path]]` to the
+  backend's `POST /mcp/tools/call` proxy and the CallToolResult is handed
+  back to the renderer verbatim; unknown tools surface as `isError`.
+  Backend contract: `{name, arguments, server_hint?}` →
+  `{content, structuredContent, isError}` (404/502 on failures).
 - HITL interrupts arrive as `custom` parts with `kind: "app.interrupt"`
   (backend nests `threadId`/`interrupts` under `providerMetadata.app` — flat
   fields fail the strict `uiMessageChunkSchema` and kill the stream) →
