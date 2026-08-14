@@ -247,10 +247,6 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
     saveSettings({ ...loadSettings(), thinkingEffort: effort });
   }, []);
 
-  // Set when the user edits a past message; consumed by the transport when
-  // the next request is prepared.
-  const pendingEditRef = useRef<string | null>(null);
-
   const { messages, setMessages, sendMessage, status, stop, regenerate } =
     useChat<ChatMessage>({
       generateId: generateUUID,
@@ -270,27 +266,11 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
         api: `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/api/chat`,
         fetch: fetchWithErrorHandlers,
         prepareSendMessagesRequest(request) {
-          let messages = request.messages;
-
-          // For edits: truncate the conversation at the edited message and
-          // swap in the replacement (the last message, just appended).
-          const pendingEdit = pendingEditRef.current;
-          if (pendingEdit) {
-            pendingEditRef.current = null;
-            const index = messages.findIndex((m) => m.id === pendingEdit);
-            if (index !== -1) {
-              const replacement = messages.at(-1);
-              if (replacement) {
-                messages = [...messages.slice(0, index), replacement];
-              }
-            }
-          }
-
           return {
             headers: authHeaders(),
             body: {
               id: request.id,
-              messages,
+              messages: request.messages,
               selectedChatModel: currentModelIdRef.current,
               thinking: thinkingEffortRef.current,
               // Web-search toggle from /settings; the backend overrides its
@@ -434,23 +414,20 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
     [messages, setInput, setMessages],
   );
 
-  // Edit a past user message: truncate the conversation at that point and
-  // resend. The transport rewrites the outgoing payload (see above).
+  // Edit the last turn: truncate the conversation at the edited message
+  // (dropping it and everything after) and let sendMessage append the new
+  // user message exactly once. Appending it here too would double-add the
+  // replacement (two children with the same key in the message list).
   const editMessage = useCallback(
     (originalMessageId: string, newText: string) => {
-      pendingEditRef.current = originalMessageId;
-      const replacement: ChatMessage = {
-        id: generateUUID(),
-        parts: [{ text: newText, type: "text" }],
-        role: "user",
-      };
       setMessages((current) => {
         const index = current.findIndex((m) => m.id === originalMessageId);
-        return index === -1
-          ? [...current, replacement]
-          : [...current.slice(0, index), replacement];
+        return index === -1 ? current : current.slice(0, index);
       });
-      sendMessage(replacement);
+      sendMessage({
+        parts: [{ text: newText, type: "text" }],
+        role: "user",
+      });
     },
     [sendMessage, setMessages],
   );
