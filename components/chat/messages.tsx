@@ -156,16 +156,6 @@ function PureMessages({
         </div>
       </div>
 
-      {/* Typing indicator: bouncing dots, centered above the composer,
-          while the response streams (same spot as the scroll button). */}
-      {isLoading && (
-        <div className="absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-border/60 bg-background/80 px-4 py-2.5 shadow-[var(--shadow-float)] backdrop-blur-sm">
-          <span className="size-1.5 animate-[thinking-dot_1.2s_infinite] rounded-full bg-muted-foreground/60" />
-          <span className="size-1.5 animate-[thinking-dot_1.2s_infinite_0.2s] rounded-full bg-muted-foreground/60" />
-          <span className="size-1.5 animate-[thinking-dot_1.2s_infinite_0.4s] rounded-full bg-muted-foreground/60" />
-        </div>
-      )}
-
       {/* Floating jump-to-latest button, centered above the composer.
           Appears whenever the user scrolls away from the bottom. */}
       {!isAtBottom && !isLoading && (
