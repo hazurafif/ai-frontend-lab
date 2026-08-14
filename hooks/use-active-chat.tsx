@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   createContext,
   type Dispatch,
+  type MutableRefObject,
   type ReactNode,
   type SetStateAction,
   useCallback,
@@ -20,6 +21,7 @@ import { UploadChatTransport } from "@/hooks/chat-transport";
 import { useAuth } from "@/hooks/use-auth";
 import { authHeaders } from "@/lib/auth";
 import { useThreads } from "@/lib/chat/chat-store";
+import { ChatStreamMerger, chunkString } from "@/lib/chat/chunk-merge";
 import { AttachMerger, isAttachTerminalEvent } from "@/lib/chat/message-merge";
 import { readSSE } from "@/lib/chat/sse";
 import {
@@ -27,14 +29,12 @@ import {
   HISTORY_CHANGED_EVENT,
   HISTORY_STORAGE_KEY,
   LAST_ACTIVE_CHAT_KEY,
-  SETTINGS_CHANGED_EVENT,
 } from "@/lib/constants";
 import { ChatbotError } from "@/lib/errors";
 import { DEFAULT_CHAT_MODEL } from "@/lib/models";
 import {
   DEFAULT_SETTINGS,
   loadSettings,
-  saveSettings,
   type ThinkingEffort,
 } from "@/lib/settings";
 import {
@@ -64,22 +64,26 @@ type ActiveChatContextValue = {
   input: string;
   setInput: Dispatch<SetStateAction<string>>;
   isLoading: boolean;
-  currentModelId: string;
-  setCurrentModelId: (id: string) => void;
-  thinkingEffort: ThinkingEffort;
-  setThinkingEffort: (effort: ThinkingEffort) => void;
+  /** Live ref of the chat model — read by the transport at send time.
+   * The reactive state lives in ChatShell (same hydration commit as the
+   * model selector) and is synced into these refs. */
+  currentModelIdRef: MutableRefObject<string>;
+  /** Live ref of the thinking-effort level — read by the transport at send
+   * time; reactive state lives in ChatShell (see currentModelIdRef). */
+  thinkingEffortRef: MutableRefObject<ThinkingEffort>;
   deleteChat: (chatId: string) => void;
   deleteAllChats: () => void;
   /** Start a fresh conversation, also when already on "/". */
   newChat: () => void;
-  /** Resume a human-in-the-loop interrupt with a decision payload
-   * (`{decision}` for a single action request, `{decisions}` for several).
-   * Passed straight into the request body — wrapping it again would nest
-   * the decision and break the backend's HITL resume ("'type'" error). */
+  /** Resume a human-in-the-loop interrupt. Keeps the interrupted assistant
+   * message in the UI and streams the resumed run into a NEW message after it
+   * (the backend continues the paused thread; `decisionPayload` is passed into
+   * the request body as-is — `{decision}` for a single action request,
+   * `{decisions}` for several). Resolves when the resumed stream ends. */
   resumeInterrupt: (
     messageId: string,
     decisionPayload: Record<string, unknown>,
-  ) => void;
+  ) => Promise<void>;
   /** Replace the message with the given id (dropping everything after it). */
   editMessage: (originalMessageId: string, newText: string) => void;
 };
@@ -224,67 +228,23 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
   // still-streaming fetch without cancelling its server run).
   const prevChatIdRef = useRef(chatId);
 
-  // The chat starts with the model saved in /settings; the selector in the
-  // chat input overrides it per conversation. Mount-gated so the server
-  // render (default model) matches the client's first render — the saved
-  // model is applied in the effect below (see settings-change subscription).
-  const [currentModelId, setCurrentModelIdState] = useState(DEFAULT_CHAT_MODEL);
-  const currentModelIdRef = useRef(currentModelId);
-  useEffect(() => {
-    currentModelIdRef.current = currentModelId;
-  }, [currentModelId]);
-
-  // The chat input and /settings share one model setting. Initialize from
-  // the saved settings (localStorage) on mount and follow any changes made
-  // elsewhere (e.g. the Model tab in /settings) via the settings-changed
-  // event. Mount-gated so the server render matches the client's first
-  // render.
-  useEffect(() => {
-    setCurrentModelIdState(loadSettings().model);
-    const handleSettingsChanged = () => {
-      setCurrentModelIdState(loadSettings().model);
-    };
-    window.addEventListener(SETTINGS_CHANGED_EVENT, handleSettingsChanged);
-    return () => {
-      window.removeEventListener(SETTINGS_CHANGED_EVENT, handleSettingsChanged);
-    };
-  }, []);
-
-  // Persist picks made in the chat input so /settings reflects them too.
-  const setCurrentModelId = useCallback((id: string) => {
-    setCurrentModelIdState(id);
-    saveSettings({ ...loadSettings(), model: id });
-  }, []);
-
-  const [input, setInput] = useState("");
-
-  // The thinking-effort level chosen next to the model selector. Persisted
-  // to settings and sent with every chat request as `thinking` (the backend's
-  // agent-config field name + level set).
-  const [thinkingEffort, setThinkingEffortState] = useState<ThinkingEffort>(
+  // The model + thinking effort picked in the chat input. Only the refs
+  // live here — the transport below reads them at send time. The REACTIVE
+  // state deliberately lives in ChatShell, not in this provider:
+  // ChatShellRoute streams as a separate SSR chunk (its own <Suspense> in
+  // the layout) and hydrates in a later commit than this provider, so a
+  // localStorage read in a provider effect would run between the two
+  // hydration commits — the model selector would hydrate with the saved
+  // model against the server HTML (default model) and throw a hydration
+  // mismatch. ChatShell initializes its state from loadSettings() in its
+  // own mount effect (same commit as the selector) and syncs these refs,
+  // so the first render always matches the server.
+  const currentModelIdRef = useRef(DEFAULT_CHAT_MODEL);
+  const thinkingEffortRef = useRef<ThinkingEffort>(
     DEFAULT_SETTINGS.thinkingEffort,
   );
-  const thinkingEffortRef = useRef(thinkingEffort);
-  useEffect(() => {
-    thinkingEffortRef.current = thinkingEffort;
-  }, [thinkingEffort]);
 
-  useEffect(() => {
-    setThinkingEffortState(loadSettings().thinkingEffort);
-    const handleSettingsChanged = () => {
-      setThinkingEffortState(loadSettings().thinkingEffort);
-    };
-    window.addEventListener(SETTINGS_CHANGED_EVENT, handleSettingsChanged);
-    return () => {
-      window.removeEventListener(SETTINGS_CHANGED_EVENT, handleSettingsChanged);
-    };
-  }, []);
-
-  // Persist picks made in the chat input so /settings reflects them too.
-  const setThinkingEffort = useCallback((effort: ThinkingEffort) => {
-    setThinkingEffortState(effort);
-    saveSettings({ ...loadSettings(), thinkingEffort: effort });
-  }, []);
+  const [input, setInput] = useState("");
 
   const { messages, setMessages, sendMessage, status, stop, regenerate } =
     useChat<ChatMessage>({
@@ -335,6 +295,17 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     statusRef.current = status;
   }, [status]);
+
+  // Latest messages + chat id, readable from the manual resume stream
+  // (fire-and-forget callback that outlives re-renders).
+  const messagesRef = useRef(messages);
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+  const chatIdRef = useRef(chatId);
+  useEffect(() => {
+    chatIdRef.current = chatId;
+  }, [chatId]);
 
   // Durable chat (flow A): the moment a send starts, mark the thread
   // running in the sidebar and make sure it has a history row. The backend
@@ -654,21 +625,85 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
     [sendMessageTracked, setMessages],
   );
 
-  // Resume a human-in-the-loop interrupt: truncate the interrupted assistant
-  // message and re-request. The payload (`{decision}` / `{decisions}`) is
-  // merged into the request body as-is; the backend sees it and resumes the
-  // paused thread.
+  // Resume a human-in-the-loop interrupt WITHOUT truncating the interrupted
+  // message (regenerate() would drop it — the AI's partial reply, tool cards
+  // and the approval card would all vanish from the UI). Instead the resume
+  // is streamed manually through the AI SDK data-stream protocol: the paused
+  // message stays put, the resumed run's continuation lands as a new
+  // assistant message after it, and the final list is persisted. The request
+  // body mirrors the normal chat contract plus the decision payload
+  // (`{decision}` / `{decisions}`); the backend resumes the paused thread
+  // via the `id` field and ignores `messages` on this path.
   const resumeInterrupt = useCallback(
-    (messageId: string, decisionPayload: Record<string, unknown>) => {
-      regenerate({ messageId, body: decisionPayload });
+    async (_messageId: string, decisionPayload: Record<string, unknown>) => {
+      const chatIdAtResume = chatId;
+      const controller = new AbortController();
+      const merger = new ChatStreamMerger();
+      let streamError: string | null = null;
+      try {
+        await readSSE(
+          `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/api/chat`,
+          (_event, data) => {
+            // Chat switched while resuming — stop merging (the server run
+            // keeps going; history is persisted server-side).
+            if (chatIdRef.current !== chatIdAtResume) {
+              controller.abort();
+              return;
+            }
+            if (typeof data !== "object" || data === null) {
+              return;
+            }
+            const chunk = data as Record<string, unknown>;
+            if (chunk.type === "error") {
+              streamError =
+                chunkString(chunk, "errorText") || "Failed to resume the run";
+              return;
+            }
+            if (chunk.type === "finish") {
+              return;
+            }
+            setMessages((current) => merger.merge(current, chunk) ?? current);
+          },
+          controller.signal,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json", ...authHeaders() },
+            body: JSON.stringify({
+              id: chatId,
+              messages: messagesRef.current,
+              selectedChatModel: currentModelIdRef.current,
+              thinking: thinkingEffortRef.current,
+              enableSearch: loadSettings().searxngEnabled,
+              ...decisionPayload,
+            }),
+          },
+        );
+      } catch (error) {
+        // Own disconnect (chat switch): leave silently.
+        if (!(error instanceof DOMException && error.name === "AbortError")) {
+          streamError =
+            error instanceof Error ? error.message : "Failed to resume the run";
+        }
+      } finally {
+        if (chatIdRef.current === chatIdAtResume) {
+          // Persist the merged conversation (the useChat status-change
+          // effect never fires for this manual stream).
+          const current = messagesRef.current;
+          saveMessages(chatId, current);
+          upsertHistory(chatId, current);
+        }
+        if (streamError) {
+          toast({ description: streamError, type: "error" });
+        }
+      }
     },
-    [regenerate],
+    [chatId, setMessages],
   );
 
   const value = useMemo<ActiveChatContextValue>(
     () => ({
       chatId,
-      currentModelId,
+      currentModelIdRef,
       deleteAllChats,
       deleteChat,
       editMessage,
@@ -680,17 +715,15 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
       resumeInterrupt,
       rewindMessage,
       sendMessage: sendMessageTracked,
-      setCurrentModelId,
       setInput,
       setMessages,
-      setThinkingEffort,
       status,
       stop: stopGeneration,
-      thinkingEffort,
+      thinkingEffortRef,
     }),
     [
       chatId,
-      currentModelId,
+      currentModelIdRef,
       deleteAllChats,
       deleteChat,
       editMessage,
@@ -702,13 +735,11 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
       resumeInterrupt,
       rewindMessage,
       sendMessageTracked,
-      setCurrentModelId,
       setInput,
       setMessages,
-      setThinkingEffort,
       status,
       stopGeneration,
-      thinkingEffort,
+      thinkingEffortRef,
     ],
   );
 

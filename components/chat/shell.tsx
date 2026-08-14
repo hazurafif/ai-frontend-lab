@@ -5,6 +5,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useSidebar } from "@/components/ui/sidebar";
 import { useActiveChat } from "@/hooks/use-active-chat";
+import { SETTINGS_CHANGED_EVENT } from "@/lib/constants";
+import { DEFAULT_CHAT_MODEL } from "@/lib/models";
+import {
+  DEFAULT_SETTINGS,
+  loadSettings,
+  saveSettings,
+  type ThinkingEffort,
+} from "@/lib/settings";
 import type { ChatMessage } from "@/lib/types";
 import { Greeting } from "./greeting";
 import { Messages } from "./messages";
@@ -24,10 +32,8 @@ export function ChatShell() {
     input,
     setInput,
     isLoading,
-    currentModelId,
-    setCurrentModelId,
-    thinkingEffort,
-    setThinkingEffort,
+    currentModelIdRef,
+    thinkingEffortRef,
     editMessage,
     rewindMessage,
   } = useActiveChat();
@@ -43,6 +49,53 @@ export function ChatShell() {
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  // The model + thinking effort shown by the composer. Owned here (not in
+  // ActiveChatProvider) on purpose: ChatShellRoute streams as a separate SSR
+  // chunk and hydrates in a later commit than the provider, so a provider
+  // mount effect reading localStorage would run between the two hydration
+  // commits — the model selector would hydrate with the saved model against
+  // the server's default HTML and throw a hydration mismatch. Starting from
+  // the defaults and applying the saved settings in THIS effect matches the
+  // server at hydration; the refs below keep the send-time values in sync
+  // with the transport (which lives in the provider).
+  const [currentModelId, setCurrentModelIdState] = useState(DEFAULT_CHAT_MODEL);
+  const [thinkingEffort, setThinkingEffortState] = useState<ThinkingEffort>(
+    DEFAULT_SETTINGS.thinkingEffort,
+  );
+  useEffect(() => {
+    setCurrentModelIdState(loadSettings().model);
+    setThinkingEffortState(loadSettings().thinkingEffort);
+    // Follow changes made elsewhere (e.g. the Model tab in /settings).
+    const handleSettingsChanged = () => {
+      setCurrentModelIdState(loadSettings().model);
+      setThinkingEffortState(loadSettings().thinkingEffort);
+    };
+    window.addEventListener(SETTINGS_CHANGED_EVENT, handleSettingsChanged);
+    return () => {
+      window.removeEventListener(SETTINGS_CHANGED_EVENT, handleSettingsChanged);
+    };
+  }, []);
+
+  // Persist picks made in the chat input so /settings reflects them too,
+  // and mirror them into the provider's send-time refs.
+  const setCurrentModelId = useCallback(
+    (id: string) => {
+      setCurrentModelIdState(id);
+      currentModelIdRef.current = id;
+      saveSettings({ ...loadSettings(), model: id });
+    },
+    [currentModelIdRef],
+  );
+
+  const setThinkingEffort = useCallback(
+    (effort: ThinkingEffort) => {
+      setThinkingEffortState(effort);
+      thinkingEffortRef.current = effort;
+      saveSettings({ ...loadSettings(), thinkingEffort: effort });
+    },
+    [thinkingEffortRef],
+  );
 
   const isNewChat = mounted && messages.length === 0 && !isLoading;
 
