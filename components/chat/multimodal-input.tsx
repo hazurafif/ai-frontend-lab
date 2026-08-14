@@ -186,7 +186,6 @@ export function MultimodalInput({
     attachmentsRef.current = attachments;
   }, [attachments]);
 
-  // TEMP DEBUG
   // Run status of this thread from the durable-chat store (background runs
   // started elsewhere — another tab, "new chat" while answering).
   const { statuses } = useThreads();
