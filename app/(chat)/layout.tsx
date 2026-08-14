@@ -11,9 +11,12 @@ import { ActiveChatProvider } from "@/hooks/use-active-chat";
 export default function Layout({ children }: { children: React.ReactNode }) {
   return (
     <Suspense fallback={<div className="flex h-dvh bg-sidebar" />}>
-      <AuthGate>
-        <SidebarShell>{children}</SidebarShell>
-      </AuthGate>
+      {/* SidebarShell awaits cookies() — it must sit directly under the
+          Suspense boundary (a client component in between, like AuthGate,
+          makes the dynamic access block the whole route). */}
+      <SidebarShell>
+        <AuthGate>{children}</AuthGate>
+      </SidebarShell>
     </Suspense>
   );
 }

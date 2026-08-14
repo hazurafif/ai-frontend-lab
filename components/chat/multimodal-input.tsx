@@ -123,6 +123,7 @@ export function MultimodalInput({
   selectedModelId,
   sendMessage,
   setInput,
+  status,
   stop,
   thinkingEffort,
 }: MultimodalInputProps) {
