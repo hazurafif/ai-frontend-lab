@@ -548,25 +548,6 @@ export function MultimodalInput({
       )}
 
       <div className="flex flex-col gap-1.5 rounded-2xl border border-border/60 bg-card p-2 shadow-[var(--shadow-card)]">
-        <div className="flex items-center gap-2">
-          <Textarea
-            autoFocus
-            className="max-h-[200px] min-h-10 flex-1 resize-none border-none bg-transparent px-1 shadow-none focus-visible:ring-0"
-            onChange={(event) => setInput(event.target.value)}
-            onBlur={() => setInputFocused(false)}
-            onFocus={() => setInputFocused(true)}
-            onKeyDown={handleKeyDown}
-            placeholder="Message..."
-            ref={textareaRef}
-            rows={1}
-            value={input}
-          />
-
-          {!inputFocused && !input && (
-            <Kbd className="shrink-0">{isMac ? "⌘K" : "Ctrl K"}</Kbd>
-          )}
-        </div>
-
         {attachments.length > 0 && (
           <Attachments variant="grid">
             {attachments.map(({ file, url }, index) => (
@@ -588,6 +569,25 @@ export function MultimodalInput({
             ))}
           </Attachments>
         )}
+
+        <div className="flex items-center gap-2">
+          <Textarea
+            autoFocus
+            className="max-h-[200px] min-h-10 flex-1 resize-none border-none bg-transparent px-1 shadow-none focus-visible:ring-0"
+            onChange={(event) => setInput(event.target.value)}
+            onBlur={() => setInputFocused(false)}
+            onFocus={() => setInputFocused(true)}
+            onKeyDown={handleKeyDown}
+            placeholder="Message..."
+            ref={textareaRef}
+            rows={1}
+            value={input}
+          />
+
+          {!inputFocused && !input && (
+            <Kbd className="shrink-0">{isMac ? "⌘K" : "Ctrl K"}</Kbd>
+          )}
+        </div>
 
         <div className="flex items-center gap-1.5">
           <div className="flex min-w-0 items-center gap-1.5">

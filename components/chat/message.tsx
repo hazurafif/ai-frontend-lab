@@ -238,7 +238,8 @@ function PreviewMessage({
         return (
           <Attachments key={key} variant="inline">
             <Attachment
-              className="cursor-default hover:bg-transparent"
+              className="min-w-0 max-w-56 cursor-default hover:bg-transparent"
+              title={filePart.filename ?? localFile?.name}
               data={{
                 filename: filePart.filename ?? localFile?.name,
                 id: `file-${key}`,
