@@ -132,7 +132,7 @@ function PureMessages({
             lastMessage?.role === "assistant" &&
             status === "ready" &&
             !isLoading && (
-              <div className="flex flex-col gap-2 pl-3">
+              <div className="flex flex-col gap-2 pl-3 pb-4">
                 <span className="text-[11px] text-muted-foreground">
                   Suggested
                 </span>
@@ -157,8 +157,10 @@ function PureMessages({
       </div>
 
       {/* Floating jump-to-latest button, centered above the composer.
-          Appears whenever the user scrolls away from the bottom. */}
-      {!isAtBottom && !isLoading && (
+          Appears whenever the user scrolls away from the bottom — also
+          while a message is streaming, so it's easy to catch up with a
+          live response. */}
+      {!isAtBottom && (
         <button
           className="absolute bottom-4 left-1/2 z-10 flex size-10 -translate-x-1/2 items-center justify-center rounded-full border border-border/60 bg-background/80 text-foreground shadow-[var(--shadow-float)] backdrop-blur-sm transition-opacity duration-150 hover:bg-muted"
           onClick={handleScrollToBottom}
