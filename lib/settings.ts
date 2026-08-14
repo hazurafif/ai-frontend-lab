@@ -200,16 +200,25 @@ type AppSettingsOut = {
 };
 
 function toAppSettings(out: AppSettingsOut): AppSettings {
+  // Defensive: tolerate partial payloads (e.g. an older backend that omits
+  // inherit_env or max_timeout) so callers always get complete fields — a
+  // missing value must never reach a Switch's `checked` (controlled →
+  // uncontrolled React warnings).
+  const execute = out.execute ?? ({} as AppSettingsOut["execute"]);
+  const connections = out.connections ?? ({} as AppSettingsOut["connections"]);
   return {
     execute: {
-      enabled: out.execute.enabled,
-      inheritEnv: out.execute.inherit_env,
-      maxTimeout: out.execute.max_timeout,
-      source: out.execute.source,
+      enabled: Boolean(execute.enabled),
+      inheritEnv: Boolean(execute.inherit_env),
+      maxTimeout:
+        Number.isFinite(execute.max_timeout) && (execute.max_timeout ?? 0) > 0
+          ? (execute.max_timeout as number)
+          : DEFAULT_SETTINGS.execute.maxTimeout,
+      source: execute.source ?? "env",
     },
     connections: {
-      fallbackEnv: out.connections.fallback_env,
-      source: out.connections.source,
+      fallbackEnv: Boolean(connections.fallback_env),
+      source: connections.source ?? "env",
     },
   };
 }

@@ -858,26 +858,31 @@ function GeneralTab({
   const [prompt, setPrompt] = useState(settings.systemPrompt);
   const [interruptOn, setInterruptOn] = useState(settings.interruptOn);
   const [searxng, setSearxng] = useState(settings.searxngEnabled);
+  // Defensive: settings.execute is normalized on load and after every
+  // backend sync, but a partial value must never reach a Switch's `checked`
+  // (controlled → uncontrolled React warnings) — fall back per field.
+  const executeDraft = settings.execute ?? DEFAULT_SETTINGS.execute;
   // Execute tool (backend-live via admin /settings).
   const [executeEnabled, setExecuteEnabled] = useState(
-    settings.execute.enabled,
+    Boolean(executeDraft.enabled),
   );
   const [executeTimeout, setExecuteTimeout] = useState(
-    String(settings.execute.maxTimeout),
+    String(executeDraft.maxTimeout),
   );
   const [executeInheritEnv, setExecuteInheritEnv] = useState(
-    settings.execute.inheritEnv,
+    Boolean(executeDraft.inheritEnv),
   );
   const [savingExecute, setSavingExecute] = useState(false);
 
   // Sync local draft when settings load/change from storage.
   useEffect(() => {
+    const execute = settings.execute ?? DEFAULT_SETTINGS.execute;
     setPrompt(settings.systemPrompt);
     setInterruptOn(settings.interruptOn);
     setSearxng(settings.searxngEnabled);
-    setExecuteEnabled(settings.execute.enabled);
-    setExecuteTimeout(String(settings.execute.maxTimeout));
-    setExecuteInheritEnv(settings.execute.inheritEnv);
+    setExecuteEnabled(Boolean(execute.enabled));
+    setExecuteTimeout(String(execute.maxTimeout));
+    setExecuteInheritEnv(Boolean(execute.inheritEnv));
   }, [
     settings.systemPrompt,
     settings.interruptOn,
