@@ -302,7 +302,7 @@ export function PrefabAppCard({
 }) {
   const toolName = part.type.replace(/^tool-/, "");
   return (
-    <div className="w-full max-w-[min(560px,100%)] overflow-hidden rounded-xl border border-border/60 bg-card/50">
+    <div className="w-full overflow-hidden rounded-xl border border-border/60 bg-card/50">
       <div className="flex items-center gap-2 border-b border-border/60 px-3 py-2">
         <AppWindowIcon className="size-3.5 shrink-0 text-muted-foreground" />
         <span className="min-w-0 truncate font-mono text-[12px] font-medium text-foreground">
