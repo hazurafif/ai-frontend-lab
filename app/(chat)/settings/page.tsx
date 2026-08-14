@@ -4,7 +4,6 @@ import {
   ChevronsUpDownIcon,
   PlusIcon,
   RefreshCcwIcon,
-  SettingsIcon,
   TrashIcon,
   XIcon,
 } from "lucide-react";
@@ -22,6 +21,11 @@ import {
 } from "@/components/ai-elements/model-selector";
 import { AccountTab } from "@/components/settings/account-tab";
 import { KnowledgeBaseTab } from "@/components/settings/knowledge-base-tab";
+import {
+  SETTINGS_TABS,
+  type SettingsTabId,
+  useSettingsTabs,
+} from "@/components/settings/settings-tabs-context";
 import { UsersTab } from "@/components/settings/users-tab";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -65,7 +69,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
 import { useAvailableModels } from "@/hooks/use-available-models";
@@ -1260,6 +1264,7 @@ function ModelTab({
 // --- Page ---------------------------------------------------------------------
 
 export default function SettingsPage() {
+  const { activeTab, setActiveTab } = useSettingsTabs();
   const { user } = useAuth();
   const [settings, setSettings] = useState<SettingsState>(DEFAULT_SETTINGS);
   const [loaded, setLoaded] = useState(false);
@@ -1333,85 +1338,62 @@ export default function SettingsPage() {
 
   return (
     <div className="mx-auto flex h-dvh w-full max-w-4xl flex-col gap-6 px-4 py-6">
-      <div className="flex shrink-0 items-center gap-3">
-        <div className="flex size-9 items-center justify-center rounded-xl border border-border/60 bg-card">
-          <SettingsIcon className="size-4 text-muted-foreground" />
-        </div>
-        <div className="flex flex-col">
-          <h1 className="text-lg font-semibold">Settings</h1>
-          <p className="text-[13px] text-muted-foreground">
-            {backendOnline
-              ? "Connected to backend — skills, tools and knowledge bases are the live configuration; model, prompt and toggles are saved locally."
-              : "Backend offline — showing saved local values."}
-          </p>
-        </div>
+      <div className="flex shrink-0 items-center">
+        <h1 className="text-lg font-semibold">
+          {SETTINGS_TABS.find((tab) => tab.id === activeTab)?.label ??
+            "Settings"}
+        </h1>
       </div>
 
       {loaded && mounted && (
         <Tabs
           orientation="vertical"
-          defaultValue="general"
-          className="flex min-h-0 flex-1 items-start gap-6"
+          onValueChange={(value) => setActiveTab(value as SettingsTabId)}
+          value={activeTab}
+          className="flex min-h-0 min-w-0 flex-1 flex-col"
         >
-          <TabsList className="w-44 shrink-0 flex-col">
-            <TabsTrigger value="general">General</TabsTrigger>
-            <TabsTrigger value="model">Model</TabsTrigger>
-            {user?.role === "admin" && (
-              <TabsTrigger value="skills">Skills</TabsTrigger>
-            )}
-            {user?.role === "admin" && (
-              <TabsTrigger value="tools">Tools</TabsTrigger>
-            )}
-            <TabsTrigger value="knowledge-base">Knowledge base</TabsTrigger>
-            <TabsTrigger value="account">Account</TabsTrigger>
-            {user?.role === "admin" && (
-              <TabsTrigger value="users">Users</TabsTrigger>
-            )}
-          </TabsList>
           {/* Fixed-height content panel: switching tabs never changes the
               page layout; long content scrolls inside the panel. */}
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col self-stretch">
-            <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-              <TabsContent value="general">
-                <GeneralTab settings={settings} setSettings={update} />
-              </TabsContent>
-              <TabsContent value="model">
-                <ModelTab settings={settings} setSettings={update} />
-              </TabsContent>
-              {user?.role === "admin" && (
-                <TabsContent value="skills">
-                  <SkillsTab
-                    settings={settings}
-                    setSettings={update}
-                    backendOnline={backendOnline}
-                  />
-                </TabsContent>
-              )}
-              {user?.role === "admin" && (
-                <TabsContent value="tools">
-                  <ToolsTab
-                    settings={settings}
-                    setSettings={update}
-                    backendOnline={backendOnline}
-                  />
-                </TabsContent>
-              )}
-              <TabsContent value="knowledge-base">
-                <KnowledgeBaseTab
+          <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+            <TabsContent value="general">
+              <GeneralTab settings={settings} setSettings={update} />
+            </TabsContent>
+            <TabsContent value="model">
+              <ModelTab settings={settings} setSettings={update} />
+            </TabsContent>
+            {user?.role === "admin" && (
+              <TabsContent value="skills">
+                <SkillsTab
                   settings={settings}
                   setSettings={update}
                   backendOnline={backendOnline}
                 />
               </TabsContent>
-              <TabsContent value="account">
-                <AccountTab />
+            )}
+            {user?.role === "admin" && (
+              <TabsContent value="tools">
+                <ToolsTab
+                  settings={settings}
+                  setSettings={update}
+                  backendOnline={backendOnline}
+                />
               </TabsContent>
-              {user?.role === "admin" && (
-                <TabsContent value="users">
-                  <UsersTab />
-                </TabsContent>
-              )}
-            </div>
+            )}
+            <TabsContent value="knowledge-base">
+              <KnowledgeBaseTab
+                settings={settings}
+                setSettings={update}
+                backendOnline={backendOnline}
+              />
+            </TabsContent>
+            <TabsContent value="account">
+              <AccountTab />
+            </TabsContent>
+            {user?.role === "admin" && (
+              <TabsContent value="users">
+                <UsersTab />
+              </TabsContent>
+            )}
           </div>
         </Tabs>
       )}

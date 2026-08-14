@@ -11,11 +11,16 @@ import {
   TrashIcon,
 } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { SidebarHistory } from "@/components/chat/sidebar-history";
+import {
+  type SettingsTabId,
+  settingsTabsForRole,
+  useSettingsTabs,
+} from "@/components/settings/settings-tabs-context";
 import {
   Sidebar,
   SidebarContent,
@@ -45,12 +50,27 @@ import {
 
 export function AppSidebar() {
   const router = useRouter();
+  const pathname = usePathname();
   const { setOpenMobile, toggleSidebar } = useSidebar();
   const { resolvedTheme, setTheme } = useTheme();
   const { deleteAllChats } = useActiveChat();
   const { user, logout } = useAuth();
+  const { activeTab, setActiveTab } = useSettingsTabs();
   const [mounted, setMounted] = useState(false);
   const [showDeleteAllDialog, setShowDeleteAllDialog] = useState(false);
+
+  // On /settings the sidebar becomes the settings navigation instead of the
+  // chat history — the settings page renders its content in the main area.
+  const isSettings = pathname.startsWith("/settings");
+  const settingsTabs = settingsTabsForRole(user?.role);
+
+  const handleTabSelect = useCallback(
+    (tab: SettingsTabId) => {
+      setActiveTab(tab);
+      setOpenMobile(false);
+    },
+    [setActiveTab, setOpenMobile],
+  );
 
   useEffect(() => {
     setMounted(true);
@@ -122,33 +142,70 @@ export function AppSidebar() {
           </SidebarMenu>
         </SidebarHeader>
         <SidebarContent>
-          <SidebarGroup className="pt-1">
-            <SidebarGroupContent>
-              <SidebarMenu>
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    className="h-8 rounded-lg border border-sidebar-border text-[13px] text-sidebar-foreground/70 transition-colors duration-150 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
-                    onClick={handleNewChat}
-                    tooltip="New Chat"
-                  >
-                    <PenSquareIcon className="size-4" />
-                    <span className="font-medium">New chat</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    className="rounded-lg text-sidebar-foreground/40 transition-colors duration-150 hover:bg-destructive/10 hover:text-destructive"
-                    onClick={handleShowDeleteAllDialog}
-                    tooltip="Delete All Chats"
-                  >
-                    <TrashIcon className="size-4" />
-                    <span className="text-[13px]">Delete all</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-          <SidebarHistory />
+          {isSettings ? (
+            <SidebarGroup className="pt-1">
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      className="h-8 rounded-lg border border-sidebar-border text-[13px] text-sidebar-foreground/70 transition-colors duration-150 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+                      onClick={handleNewChat}
+                      tooltip="Back to chat"
+                    >
+                      <MessageSquareIcon className="size-4" />
+                      <span className="font-medium">Back to chat</span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                  {settingsTabs.map((tab) => {
+                    const Icon = tab.icon;
+                    return (
+                      <SidebarMenuItem key={tab.id}>
+                        <SidebarMenuButton
+                          className="h-8 rounded-lg text-[13px] text-sidebar-foreground/60 transition-colors duration-150 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground data-active:bg-sidebar-accent/80 data-active:text-sidebar-accent-foreground"
+                          isActive={activeTab === tab.id}
+                          onClick={() => handleTabSelect(tab.id)}
+                          tooltip={tab.label}
+                        >
+                          <Icon className="size-4" />
+                          <span>{tab.label}</span>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    );
+                  })}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          ) : (
+            <>
+              <SidebarGroup className="pt-1">
+                <SidebarGroupContent>
+                  <SidebarMenu>
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
+                        className="h-8 rounded-lg border border-sidebar-border text-[13px] text-sidebar-foreground/70 transition-colors duration-150 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+                        onClick={handleNewChat}
+                        tooltip="New Chat"
+                      >
+                        <PenSquareIcon className="size-4" />
+                        <span className="font-medium">New chat</span>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
+                        className="rounded-lg text-sidebar-foreground/40 transition-colors duration-150 hover:bg-destructive/10 hover:text-destructive"
+                        onClick={handleShowDeleteAllDialog}
+                        tooltip="Delete All Chats"
+                      >
+                        <TrashIcon className="size-4" />
+                        <span className="text-[13px]">Delete all</span>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  </SidebarMenu>
+                </SidebarGroupContent>
+              </SidebarGroup>
+              <SidebarHistory />
+            </>
+          )}
         </SidebarContent>
         <SidebarFooter className="border-t border-sidebar-border pt-2 pb-3">
           <SidebarMenu>

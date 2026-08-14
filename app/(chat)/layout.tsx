@@ -4,6 +4,7 @@ import { Toaster } from "sonner";
 import { AuthGate } from "@/components/auth/auth-gate";
 import { AppSidebar } from "@/components/chat/app-sidebar";
 import { ChatShellRoute } from "@/components/chat/shell-route";
+import { SettingsTabsProvider } from "@/components/settings/settings-tabs-context";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { ActiveChatProvider } from "@/hooks/use-active-chat";
 
@@ -23,23 +24,25 @@ async function SidebarShell({ children }: { children: React.ReactNode }) {
 
   return (
     <SidebarProvider defaultOpen={!isCollapsed}>
-      <ActiveChatProvider>
-        <AppSidebar />
-        <SidebarInset>
-          <Toaster
-            position="top-center"
-            theme="system"
-            toastOptions={{
-              className:
-                "!bg-card !text-foreground !border-border/50 !shadow-[var(--shadow-float)]",
-            }}
-          />
-          <Suspense fallback={<div className="flex h-dvh" />}>
-            <ChatShellRoute />
-          </Suspense>
-          {children}
-        </SidebarInset>
-      </ActiveChatProvider>
+      <SettingsTabsProvider>
+        <ActiveChatProvider>
+          <AppSidebar />
+          <SidebarInset>
+            <Toaster
+              position="top-center"
+              theme="system"
+              toastOptions={{
+                className:
+                  "!bg-card !text-foreground !border-border/50 !shadow-[var(--shadow-float)]",
+              }}
+            />
+            <Suspense fallback={<div className="flex h-dvh" />}>
+              <ChatShellRoute />
+            </Suspense>
+            {children}
+          </SidebarInset>
+        </ActiveChatProvider>
+      </SettingsTabsProvider>
     </SidebarProvider>
   );
 }

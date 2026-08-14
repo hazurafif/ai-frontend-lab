@@ -3,7 +3,7 @@
 import type { UseChatHelpers } from "@ai-sdk/react";
 import { ArrowUpIcon, ChevronDownIcon, SquareIcon, XIcon } from "lucide-react";
 import type { FormEvent, KeyboardEvent } from "react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ModelSelector,
   ModelSelectorContent,
@@ -49,6 +49,38 @@ export function MultimodalInput({
 }: MultimodalInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [modelSelectorOpen, setModelSelectorOpen] = useState(false);
+  const [inputFocused, setInputFocused] = useState(false);
+  // Mount-gated platform check (hydration rule): server + first client
+  // render show the macOS glyph, then flip to the Ctrl label on other OSes.
+  const [isMac, setIsMac] = useState(true);
+
+  // Global ⌘K / Ctrl+K — focus the message input from anywhere in the app.
+  useEffect(() => {
+    setIsMac(/mac/i.test(navigator.platform || navigator.userAgent));
+  }, []);
+
+  useEffect(() => {
+    const handleGlobalKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        event.key.toLowerCase() === "k" &&
+        !event.altKey
+      ) {
+        event.preventDefault();
+        const textarea = textareaRef.current;
+        if (!textarea) {
+          return;
+        }
+        textarea.focus();
+        // Cursor at the end — matches focusing with the mouse.
+        const length = textarea.value.length;
+        textarea.setSelectionRange(length, length);
+        setModelSelectorOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handleGlobalKeyDown);
+    return () => window.removeEventListener("keydown", handleGlobalKeyDown);
+  }, []);
 
   // Live models from the completion source (GET /api/models); null while
   // loading or when the fetch fails → fall back to the built-in list.
@@ -123,12 +155,20 @@ export function MultimodalInput({
           autoFocus
           className="max-h-[200px] min-h-10 flex-1 resize-none border-none bg-transparent px-1 shadow-none focus-visible:ring-0"
           onChange={(event) => setInput(event.target.value)}
+          onBlur={() => setInputFocused(false)}
+          onFocus={() => setInputFocused(true)}
           onKeyDown={handleKeyDown}
           placeholder="Message..."
           ref={textareaRef}
           rows={1}
           value={input}
         />
+
+        {!inputFocused && !input && (
+          <kbd className="pointer-events-none shrink-0 select-none rounded-md border border-border/60 bg-muted/60 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground/70">
+            {isMac ? "⌘K" : "Ctrl K"}
+          </kbd>
+        )}
 
         <div className="flex shrink-0 items-center gap-1.5">
           <ModelSelector
