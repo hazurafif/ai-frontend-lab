@@ -175,7 +175,14 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
 
   const chatId = chatIdFromUrl ?? newChatIdRef.current;
 
-  const [currentModelId, setCurrentModelId] = useState(DEFAULT_CHAT_MODEL);
+  const [currentModelId, setCurrentModelId] = useState(() => {
+    // The chat starts with the model saved in /settings (if any); the
+    // selector in the chat input can override it per conversation.
+    if (typeof window === "undefined") {
+      return DEFAULT_CHAT_MODEL;
+    }
+    return loadSettings().model || DEFAULT_CHAT_MODEL;
+  });
   const currentModelIdRef = useRef(currentModelId);
   useEffect(() => {
     currentModelIdRef.current = currentModelId;

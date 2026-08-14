@@ -252,6 +252,22 @@ export function saveSettings(settings: SettingsState) {
   }
 }
 
+// Whether the user has ever saved settings (vs. first run with defaults).
+// GET /health reports the backend's own live values; those may only seed
+// the first-run defaults — applying them on every load would clobber saved
+// choices (model, interrupt toggle, web-search toggle) since the backend
+// has no /settings endpoints yet.
+export function hasStoredSettings(): boolean {
+  if (typeof window === "undefined") {
+    return false;
+  }
+  try {
+    return window.localStorage.getItem(SETTINGS_STORAGE_KEY) !== null;
+  } catch {
+    return false;
+  }
+}
+
 // Shape of GET /health (backend GET /health) — live backend state.
 export type HealthPayload = {
   status?: string;

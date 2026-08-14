@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  ChevronsUpDownIcon,
   PlusIcon,
   RefreshCcwIcon,
   SettingsIcon,
@@ -9,6 +10,16 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import {
+  ModelSelector,
+  ModelSelectorContent,
+  ModelSelectorEmpty,
+  ModelSelectorGroup,
+  ModelSelectorInput,
+  ModelSelectorItem,
+  ModelSelectorList,
+  ModelSelectorTrigger,
+} from "@/components/ai-elements/model-selector";
 import { AccountTab } from "@/components/settings/account-tab";
 import { KnowledgeBaseTab } from "@/components/settings/knowledge-base-tab";
 import { UsersTab } from "@/components/settings/users-tab";
@@ -17,7 +28,6 @@ import { Button } from "@/components/ui/button";
 import {
   Combobox,
   ComboboxContent,
-  ComboboxEmpty,
   ComboboxInput,
   ComboboxItem,
   ComboboxList,
@@ -51,7 +61,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
-import { type ChatModel, chatModels, DEFAULT_CHAT_MODEL } from "@/lib/models";
+import { type ChatModel, chatModels, findChatModel } from "@/lib/models";
 import {
   createSkill as apiCreateSkill,
   createToolServer as apiCreateToolServer,
@@ -67,6 +77,7 @@ import {
   fetchKnowledgeBasesWithDocuments,
   fetchSkills,
   fetchToolServers,
+  hasStoredSettings,
   loadSettings,
   normalizeSkillName,
   reconnectToolServers,
@@ -914,10 +925,28 @@ function ModelTab({
   setSettings: (updater: (current: SettingsState) => SettingsState) => void;
 }) {
   const [modelId, setModelId] = useState(settings.model);
+  const [open, setOpen] = useState(false);
+  // The live id may come from the backend (GET /health) and not exist in
+  // the preset list — never silently fall back to a wrong preset entry.
   const model: ChatModel | undefined = useMemo(
-    () => chatModels.find((m) => m.id === modelId) ?? chatModels[0],
+    () => findChatModel(modelId),
     [modelId],
   );
+  // When the current id isn't a preset, surface it at the top of the list
+  // as-is so the active model stays visible and re-selectable.
+  const models: ChatModel[] = useMemo(() => {
+    if (model) {
+      return chatModels;
+    }
+    return [
+      {
+        id: modelId,
+        name: modelId,
+        description: "Model reported by the backend — not in the preset list",
+      },
+      ...chatModels,
+    ];
+  }, [model, modelId]);
 
   useEffect(() => {
     setModelId(settings.model);
@@ -934,38 +963,66 @@ function ModelTab({
         <FieldGroup>
           <Field>
             <FieldLabel>Chat model</FieldLabel>
-            <Combobox
-              value={model?.id ?? DEFAULT_CHAT_MODEL}
-              onValueChange={(value) => {
-                if (value !== null) {
-                  setModelId(value);
+            <ModelSelector open={open} onOpenChange={setOpen}>
+              <ModelSelectorTrigger
+                render={
+                  <Button
+                    className="w-full justify-between font-medium"
+                    variant="outline"
+                  >
+                    <span className="truncate">{model?.name ?? modelId}</span>
+                    <ChevronsUpDownIcon
+                      className="size-4 shrink-0 text-muted-foreground"
+                      data-icon="inline-end"
+                    />
+                  </Button>
                 }
-              }}
-            >
-              <ComboboxTrigger>
-                <ComboboxValue />
-              </ComboboxTrigger>
-              <ComboboxContent>
-                <ComboboxInput placeholder="Search models…" />
-                <ComboboxList>
-                  {chatModels.map((m) => (
-                    <ComboboxItem key={m.id} value={m.id}>
-                      <span className="font-medium">{m.name}</span>
-                      <p className="text-[12px] text-muted-foreground">
-                        {m.description}
-                      </p>
-                    </ComboboxItem>
-                  ))}
-                  <ComboboxEmpty>No models found.</ComboboxEmpty>
-                </ComboboxList>
-              </ComboboxContent>
-            </Combobox>
+              />
+              <ModelSelectorContent align="start" side="bottom">
+                <ModelSelectorInput placeholder="Search models…" />
+                <ModelSelectorList>
+                  <ModelSelectorEmpty>No models found.</ModelSelectorEmpty>
+                  <ModelSelectorGroup>
+                    {models.map((m) => {
+                      const isRaw = !findChatModel(m.id);
+                      return (
+                        <ModelSelectorItem
+                          key={m.id}
+                          value={m.id}
+                          data-checked={modelId === m.id || undefined}
+                          onSelect={() => {
+                            setOpen(false);
+                            setModelId(m.id);
+                          }}
+                        >
+                          <div className="flex flex-col gap-0.5">
+                            <span
+                              className={cn(
+                                "font-medium",
+                                isRaw && "font-mono text-[12px]",
+                              )}
+                            >
+                              {m.name}
+                            </span>
+                            <span className="text-[12px] text-muted-foreground">
+                              {m.description}
+                            </span>
+                          </div>
+                        </ModelSelectorItem>
+                      );
+                    })}
+                  </ModelSelectorGroup>
+                </ModelSelectorList>
+              </ModelSelectorContent>
+            </ModelSelector>
             <FieldDescription>
               Sent as{" "}
               <code className="rounded bg-muted px-1 font-mono text-[12px]">
                 selectedChatModel
               </code>{" "}
-              in chat requests; the backend resolves the actual model.
+              in chat requests; the backend resolves the actual model. The chat
+              opens with this model — change it per conversation from the input
+              toolbar.
             </FieldDescription>
           </Field>
         </FieldGroup>
@@ -994,13 +1051,22 @@ export default function SettingsPage() {
         return;
       }
       setBackendOnline(true);
+      // Health values only seed the first-run defaults. The backend has no
+      // /settings endpoints yet (model, prompt, toggles are local-only), so
+      // applying health.model etc. on every load would silently clobber the
+      // user's saved choices.
+      const hasSaved = hasStoredSettings();
       setSettings((current) => ({
         ...current,
-        model: health.model ?? current.model,
-        interruptOn: Boolean(
-          health.interrupt_on && Object.keys(health.interrupt_on).length,
-        ),
-        searxngEnabled: health.searxng?.enabled ?? current.searxngEnabled,
+        model: hasSaved ? current.model : (health.model ?? current.model),
+        interruptOn: hasSaved
+          ? current.interruptOn
+          : Boolean(
+              health.interrupt_on && Object.keys(health.interrupt_on).length,
+            ),
+        searxngEnabled: hasSaved
+          ? current.searxngEnabled
+          : (health.searxng?.enabled ?? current.searxngEnabled),
       }));
       // Replace the local cache with the backend's live agent resources.
       Promise.all([
@@ -1043,8 +1109,8 @@ export default function SettingsPage() {
   }, []);
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-4 py-6">
-      <div className="flex items-center gap-3">
+    <div className="mx-auto flex h-dvh w-full max-w-4xl flex-col gap-6 px-4 py-6">
+      <div className="flex shrink-0 items-center gap-3">
         <div className="flex size-9 items-center justify-center rounded-xl border border-border/60 bg-card">
           <SettingsIcon className="size-4 text-muted-foreground" />
         </div>
@@ -1052,7 +1118,7 @@ export default function SettingsPage() {
           <h1 className="text-lg font-semibold">Settings</h1>
           <p className="text-[13px] text-muted-foreground">
             {backendOnline
-              ? "Connected to backend — values shown are the live configuration."
+              ? "Connected to backend — skills, tools and knowledge bases are the live configuration; model, prompt and toggles are saved locally."
               : "Backend offline — showing saved local values."}
           </p>
         </div>
@@ -1062,44 +1128,27 @@ export default function SettingsPage() {
         <Tabs
           orientation="vertical"
           defaultValue="general"
-          className="flex items-start gap-6"
+          className="flex min-h-0 flex-1 items-start gap-6"
         >
-          <TabsList className="w-44 shrink-0 flex-col items-stretch">
-            {/* justify-start: the group-data-vertical variant never fires
-                (radix sets data-orientation, not data-vertical), so trigger
-                text would stay centered without an explicit override. */}
-            <TabsTrigger value="general" className="justify-start px-3">
-              General
-            </TabsTrigger>
-            <TabsTrigger value="model" className="justify-start px-3">
-              Model
-            </TabsTrigger>
+          <TabsList className="w-44 shrink-0 flex-col">
+            <TabsTrigger value="general">General</TabsTrigger>
+            <TabsTrigger value="model">Model</TabsTrigger>
             {user?.role === "admin" && (
-              <TabsTrigger value="skills" className="justify-start px-3">
-                Skills
-              </TabsTrigger>
+              <TabsTrigger value="skills">Skills</TabsTrigger>
             )}
             {user?.role === "admin" && (
-              <TabsTrigger value="tools" className="justify-start px-3">
-                Tools
-              </TabsTrigger>
+              <TabsTrigger value="tools">Tools</TabsTrigger>
             )}
-            <TabsTrigger value="knowledge-base" className="justify-start px-3">
-              Knowledge base
-            </TabsTrigger>
-            <TabsTrigger value="account" className="justify-start px-3">
-              Account
-            </TabsTrigger>
+            <TabsTrigger value="knowledge-base">Knowledge base</TabsTrigger>
+            <TabsTrigger value="account">Account</TabsTrigger>
             {user?.role === "admin" && (
-              <TabsTrigger value="users" className="justify-start px-3">
-                Users
-              </TabsTrigger>
+              <TabsTrigger value="users">Users</TabsTrigger>
             )}
           </TabsList>
-          <div className="min-w-0 flex-1">
-            {/* Fixed-height content panel: switching tabs never changes the
-                page layout; long content scrolls inside the panel. */}
-            <div className="h-[calc(100dvh-10.5rem)] min-h-[320px] overflow-y-auto pr-1">
+          {/* Fixed-height content panel: switching tabs never changes the
+              page layout; long content scrolls inside the panel. */}
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col self-stretch">
+            <div className="min-h-0 flex-1 overflow-y-auto pr-1">
               <TabsContent value="general">
                 <GeneralTab settings={settings} setSettings={update} />
               </TabsContent>
