@@ -195,7 +195,21 @@ function PreviewMessage({
     { isStreaming: false, rendered: false, text: "" },
   ) ?? { isStreaming: false, rendered: false, text: "" };
 
-  const parts = message.parts?.map((part, index) => {
+  // User messages render their attachment chips FIRST, then the text — the
+  // file is the subject of the message, so its chip leads (composer parts
+  // arrive text-first). Assistant messages keep their natural order.
+  const orderedParts = useMemo(() => {
+    const parts = message.parts ?? [];
+    if (message.role !== "user") {
+      return parts;
+    }
+    return [
+      ...parts.filter((part) => part.type === "file"),
+      ...parts.filter((part) => part.type !== "file"),
+    ];
+  }, [message.parts, message.role]);
+
+  const parts = orderedParts.map((part, index) => {
     const key = `message-${message.id}-part-${index}`;
     const { type } = part;
 
