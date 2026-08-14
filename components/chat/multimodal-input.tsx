@@ -8,6 +8,7 @@ import {
   ChevronDownIcon,
   FileIcon,
   PaperclipIcon,
+  PuzzleIcon,
   SquareIcon,
   XIcon,
 } from "lucide-react";
@@ -136,6 +137,8 @@ export function MultimodalInput({
   // execute.enabled, EXECUTE_ENABLED) — required for the agent to reach
   // uploaded files. null = unknown (still loading / offline → allow).
   const [executeEnabled, setExecuteEnabled] = useState<boolean | null>(null);
+  // MCP tool servers connected on the backend (GET /health mcp_servers).
+  const [mcpServers, setMcpServers] = useState<string[]>([]);
   // Context window + token usage from GET /threads/{id}/usage (backend
   // ThreadUsageOut). Refetches when the thread changes or a run settles;
   // hidden while a run is in progress, and for new chats / guests (no
@@ -165,13 +168,15 @@ export function MultimodalInput({
   // render show the macOS glyph, then flip to the Ctrl label on other OSes.
   const [isMac, setIsMac] = useState(true);
 
-  // Backend execute capability for the upload button (EXECUTE_ENABLED).
+  // Backend execute capability for the upload button (EXECUTE_ENABLED) +
+  // connected MCP servers for the tools indicator.
   useEffect(() => {
     let cancelled = false;
     fetchBackendHealth()
       .then((health) => {
         if (!cancelled) {
           setExecuteEnabled(health?.execute?.enabled ?? null);
+          setMcpServers(health?.mcp_servers ?? []);
         }
       })
       .catch(() => {
@@ -486,6 +491,66 @@ export function MultimodalInput({
                       )}
                     </DropdownMenuItem>
                   ))}
+                </DropdownMenuGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    aria-label="MCP tool servers"
+                    className="text-muted-foreground/70 hover:text-foreground"
+                    size="sm"
+                    title={
+                      mcpServers.length > 0
+                        ? `MCP servers: ${mcpServers.join(", ")}`
+                        : "No MCP servers connected"
+                    }
+                    type="button"
+                    variant="ghost"
+                  >
+                    <PuzzleIcon data-icon="inline-start" />
+                    {mcpServers.length > 0 && (
+                      <span className="max-w-16 truncate">
+                        {mcpServers.length}
+                      </span>
+                    )}
+                    <ChevronDownIcon data-icon="inline-end" />
+                  </Button>
+                }
+              >
+                <span className="sr-only">MCP tool servers</span>
+              </DropdownMenuTrigger>
+
+              <DropdownMenuContent
+                align="start"
+                className="min-w-44"
+                side="top"
+                sideOffset={8}
+              >
+                <DropdownMenuGroup>
+                  <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">
+                    Connected MCP servers
+                  </DropdownMenuLabel>
+                  {mcpServers.length === 0 ? (
+                    <DropdownMenuItem disabled>
+                      <span className="text-muted-foreground">
+                        No servers connected
+                      </span>
+                    </DropdownMenuItem>
+                  ) : (
+                    mcpServers.map((server) => (
+                      <DropdownMenuItem disabled key={server}>
+                        <span className="flex flex-1 items-center gap-2">
+                          <span className="size-1.5 rounded-full bg-green-500" />
+                          <span className="font-mono text-[12px]">
+                            {server}
+                          </span>
+                        </span>
+                      </DropdownMenuItem>
+                    ))
+                  )}
                 </DropdownMenuGroup>
               </DropdownMenuContent>
             </DropdownMenu>
