@@ -1,7 +1,7 @@
 "use client";
 
 import type { CustomContentUIPart } from "ai";
-import { CheckIcon, CornerDownLeftIcon, XIcon } from "lucide-react";
+import { CheckIcon, CornerDownLeftIcon, PencilIcon, XIcon } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -13,13 +13,22 @@ import type { ChatMessage } from "@/lib/types";
  * pause. The backend emits these (with providerMetadata.app.threadId +
  * .interrupts) when the agent wants approval for a sensitive tool call.
  *
- * Resuming truncates the interrupted assistant message and re-requests with
- * a `decision` in the body; the backend resumes the paused thread.
+ * Each `action_requests[]` item is `{name, args}`. Resuming truncates the
+ * interrupted assistant message and re-requests with a `decision` in the
+ * body; the backend resumes the paused thread. Decision types (langchain
+ * HITL middleware contract, verified live):
+ *   {"type": "approve"} · {"type": "reject"}
+ *   {"type": "edit", "edited_action": {"name", "args"}}
+ *   {"type": "respond", "message": "..."}
+ * A single request accepts `decision`; multiple requests require a full
+ * `decisions` list (one entry per action_request).
  */
 
 type ActionRequest = {
-  action?: string;
+  name?: string;
   args?: unknown;
+  // History persisted by older builds used `action` instead of `name`.
+  action?: string;
 };
 
 type InterruptPayload = {
@@ -44,6 +53,10 @@ function formatArgs(args: unknown): string {
   }
 }
 
+function requestName(request: ActionRequest): string {
+  return request.name ?? request.action ?? "tool";
+}
+
 export function InterruptCard({
   part,
   message,
@@ -56,6 +69,10 @@ export function InterruptCard({
   const { resumeInterrupt } = useActiveChat();
   const [responding, setResponding] = useState(false);
   const [response, setResponse] = useState("");
+  // Edit mode: one JSON draft per action_request (pre-filled with its args).
+  const [editing, setEditing] = useState(false);
+  const [drafts, setDrafts] = useState<string[] | null>(null);
+  const [jsonError, setJsonError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
   // providerMetadata is keyed by provider name (AI SDK v7 schema). Read the
@@ -67,33 +84,62 @@ export function InterruptCard({
   const actionRequests = interrupts[0]?.action_requests ?? [];
   const description = interrupts[0]?.description;
 
-  const primaryAction = actionRequests[0]?.action ?? "run a tool";
+  const primaryAction = requestName(actionRequests[0]);
   const hasActionRequests = actionRequests.length > 0;
 
-  const decide = (base: Record<string, unknown>) => {
-    // One decision per action_request when there are several; the backend
-    // accepts a single `decision` otherwise.
-    return actionRequests.length <= 1
-      ? { decision: base }
-      : { decisions: actionRequests.map(() => base) };
-  };
-
-  const submit = (decision: Record<string, unknown>) => {
+  const submitDecisions = (decisions: Record<string, unknown>[]) => {
     setPending(true);
     // Fire and forget: the request streams a new assistant message; the
     // interrupted message (and this card) is truncated by the SDK.
-    resumeInterrupt(message.id, decide(decision));
+    resumeInterrupt(
+      message.id,
+      decisions.length <= 1
+        ? { decision: decisions[0] }
+        : { decisions },
+    );
   };
 
-  const handleApprove = () => submit({ action: "approve" });
-  const handleReject = () => submit({ action: "reject" });
+  const handleApprove = () => submitDecisions([{ type: "approve" }]);
+  const handleReject = () => submitDecisions([{ type: "reject" }]);
 
   const handleRespond = () => {
     const text = response.trim();
     if (!text) {
       return;
     }
-    submit({ action: "respond", args: { response: text } });
+    submitDecisions([{ type: "respond", message: text }]);
+  };
+
+  const startEdit = () => {
+    setDrafts(actionRequests.map((request) => formatArgs(request.args) || "{}"));
+    setJsonError(null);
+    setEditing(true);
+  };
+
+  const handleEdit = () => {
+    if (!drafts) {
+      return;
+    }
+    const updatedInputs: unknown[] = [];
+    for (const [index, draft] of drafts.entries()) {
+      try {
+        updatedInputs.push(JSON.parse(draft));
+      } catch {
+        setJsonError(`Request ${index + 1}: invalid JSON`);
+        return;
+      }
+    }
+    // One `edit` decision per action_request; `edited_action` carries the
+    // full action (name kept, args replaced with the edited values).
+    submitDecisions(
+      updatedInputs.map((args, index) => ({
+        edited_action: {
+          args,
+          name: requestName(actionRequests[index]),
+        },
+        type: "edit",
+      })),
+    );
   };
 
   return (
@@ -128,12 +174,29 @@ export function InterruptCard({
                 key={index}
               >
                 <p className="font-mono text-[11px] font-medium text-foreground">
-                  {request.action ?? "tool"}
+                  {requestName(request)}
                 </p>
-                {args && (
-                  <pre className="max-h-32 overflow-y-auto whitespace-pre-wrap break-all font-mono text-[11px] leading-relaxed text-muted-foreground">
-                    {args}
-                  </pre>
+                {editing ? (
+                  <Textarea
+                    aria-label={`Args for ${requestName(request)}`}
+                    className="mt-1.5 min-h-16 font-mono text-[11px]"
+                    onChange={(event) =>
+                      setDrafts((current) =>
+                        current
+                          ? current.map((draft, i) =>
+                              i === index ? event.target.value : draft,
+                            )
+                          : current,
+                      )
+                    }
+                    value={drafts?.[index] ?? ""}
+                  />
+                ) : (
+                  args && (
+                    <pre className="max-h-32 overflow-y-auto whitespace-pre-wrap break-all font-mono text-[11px] leading-relaxed text-muted-foreground">
+                      {args}
+                    </pre>
+                  )
                 )}
               </div>
             );
@@ -145,6 +208,10 @@ export function InterruptCard({
         <p className="text-[12px] text-muted-foreground">
           The agent paused to ask for your input ({primaryAction}).
         </p>
+      )}
+
+      {jsonError && (
+        <p className="text-[12px] text-destructive">{jsonError}</p>
       )}
 
       {active ? (
@@ -177,11 +244,30 @@ export function InterruptCard({
             </Button>
             <Button
               className="h-7 px-2.5 text-[12px]"
-              onClick={() => setResponding((current) => !current)}
+              onClick={() => {
+                setEditing(false);
+                setResponding((current) => !current);
+              }}
               variant="ghost"
               disabled={pending}
             >
               {responding ? "Cancel" : "Respond"}
+            </Button>
+            <Button
+              className="h-7 px-2.5 text-[12px]"
+              onClick={() => {
+                setResponding(false);
+                if (editing) {
+                  setEditing(false);
+                } else {
+                  startEdit();
+                }
+              }}
+              variant="ghost"
+              disabled={pending}
+            >
+              <PencilIcon />
+              {editing ? "Cancel" : "Edit"}
             </Button>
             {responding && (
               <Button
@@ -192,6 +278,17 @@ export function InterruptCard({
               >
                 <CornerDownLeftIcon />
                 Send
+              </Button>
+            )}
+            {editing && (
+              <Button
+                className="h-7 px-2.5 text-[12px]"
+                onClick={handleEdit}
+                variant="secondary"
+                disabled={pending}
+              >
+                <CheckIcon />
+                Apply edits
               </Button>
             )}
           </div>
