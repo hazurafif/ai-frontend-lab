@@ -456,13 +456,17 @@ export function MultimodalInput({
     if (!files || files.length === 0) {
       return;
     }
-    setAttachments((current) => [
-      ...current,
-      ...Array.from(files).map((file) => ({
-        file,
-        url: URL.createObjectURL(file),
-      })),
-    ]);
+    // Snapshot the FileList into plain items BEFORE touching the input:
+    // FileList is a live collection, and resetting the input value below
+    // empties it before React runs the (deferred) state updater — reading
+    // it inside setAttachments would silently drop every picked file.
+    // Object URLs are created here (not in the updater) so StrictMode's
+    // double-invoked updater can't leak blob URLs.
+    const picked = Array.from(files).map((file) => ({
+      file,
+      url: URL.createObjectURL(file),
+    }));
+    setAttachments((current) => [...current, ...picked]);
     // Allow re-picking the same file after removing it.
     if (fileInputRef.current) {
       fileInputRef.current.value = "";

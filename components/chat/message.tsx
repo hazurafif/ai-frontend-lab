@@ -30,6 +30,7 @@ import {
   Attachment,
   AttachmentInfo,
   AttachmentPreview,
+  Attachments,
 } from "../ai-elements/attachments";
 import { InterruptCard } from "../ai-elements/interrupt-card";
 import {
@@ -235,20 +236,21 @@ function PreviewMessage({
       // the backend only receives the bytes, not a URL.
       if (localFile || filePart.filename) {
         return (
-          <Attachment
-            className="cursor-default hover:bg-transparent"
-            data={{
-              filename: filePart.filename ?? localFile?.name,
-              id: `file-${key}`,
-              mediaType: filePart.mediaType,
-              type: "file",
-              url: filePart.url ?? "",
-            }}
-            key={key}
-          >
-            <AttachmentPreview />
-            <AttachmentInfo showMediaType={false} />
-          </Attachment>
+          <Attachments key={key} variant="inline">
+            <Attachment
+              className="cursor-default hover:bg-transparent"
+              data={{
+                filename: filePart.filename ?? localFile?.name,
+                id: `file-${key}`,
+                mediaType: filePart.mediaType,
+                type: "file",
+                url: filePart.url ?? "",
+              }}
+            >
+              <AttachmentPreview />
+              <AttachmentInfo showMediaType={false} />
+            </Attachment>
+          </Attachments>
         );
       }
       // Attachments sent by the backend (e.g. generated images).
