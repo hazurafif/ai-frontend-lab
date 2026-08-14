@@ -65,7 +65,9 @@ function ReasoningBlock({
     <Collapsible
       className="w-full max-w-[min(560px,100%)] overflow-hidden rounded-xl border border-border/60 bg-card/50"
       onOpenChange={setOpen}
-      open={open || isStreaming}
+      // Collapsed by default, like tool cards — the spinner badge in the
+      // header shows progress while the model deliberates.
+      open={open}
     >
       <CollapsibleTrigger className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-muted/40">
         <BrainIcon className="size-3.5 shrink-0 text-muted-foreground" />
@@ -85,7 +87,7 @@ function ReasoningBlock({
             // free space and park the spinner mid-card (the badge owns it
             // while streaming; the chevron takes over when done).
             !isStreaming && "ml-auto",
-            (open || isStreaming) && "rotate-180",
+            open && "rotate-180",
           )}
         />
       </CollapsibleTrigger>
