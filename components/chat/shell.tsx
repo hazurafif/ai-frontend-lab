@@ -7,6 +7,7 @@ import { ChatHeader } from "./chat-header";
 import { Greeting } from "./greeting";
 import { Messages } from "./messages";
 import { MultimodalInput } from "./multimodal-input";
+import { StarterCards } from "./starter-cards";
 
 export function ChatShell() {
   const {
@@ -119,6 +120,14 @@ export function ChatShell() {
         {isNewChat ? (
           <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-6 px-4">
             <Greeting />
+            <StarterCards
+              onPick={(prompt) =>
+                sendMessage({
+                  parts: [{ text: prompt, type: "text" }],
+                  role: "user",
+                })
+              }
+            />
             <div className="w-full max-w-4xl">{composer}</div>
           </div>
         ) : (
