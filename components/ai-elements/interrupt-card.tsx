@@ -1,7 +1,12 @@
 "use client";
 
 import type { CustomContentUIPart } from "ai";
-import { CheckIcon, WrenchIcon, XIcon } from "lucide-react";
+import {
+  CheckIcon,
+  LoaderCircleIcon,
+  WrenchIcon,
+  XIcon,
+} from "lucide-react";
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -65,7 +70,11 @@ export function InterruptCard({
   active: boolean;
 }) {
   const { resumeInterrupt } = useActiveChat();
-  const [pending, setPending] = useState(false);
+  // Local decision state: while the resumed run streams, the interrupted
+  // message (and this card) stays in the chat — show a resolving indicator,
+  // then a settled badge, instead of the buttons.
+  const [outcome, setOutcome] = useState<"approve" | "reject" | null>(null);
+  const [resolving, setResolving] = useState(false);
 
   // providerMetadata is keyed by provider name (AI SDK v7 schema). Read the
   // `app` entry; fall back to the flat shape for history persisted before
@@ -78,17 +87,27 @@ export function InterruptCard({
   // Approve/reject every pending tool call: the backend requires one
   // decision per hanging tool call, so a single approve for a two-call
   // interrupt would fail the resume.
-  const submitDecisions = (decisions: Record<string, unknown>[]) => {
-    setPending(true);
-    // Fire and forget: the request streams a new assistant message; the
-    // interrupted message (and this card) is truncated by the SDK.
-    resumeInterrupt(message.id, { decisions });
+  const submitDecisions = async (
+    decision: "approve" | "reject",
+  ): Promise<void> => {
+    if (resolving || outcome !== null) {
+      return;
+    }
+    setOutcome(decision);
+    setResolving(true);
+    try {
+      // The interrupted message is NOT truncated: the provider streams the
+      // resumed run into a new message after it, then this resolves.
+      await resumeInterrupt(message.id, {
+        decisions: actionRequests.map(() => ({ type: decision })),
+      });
+    } finally {
+      setResolving(false);
+    }
   };
 
-  const handleAccept = () =>
-    submitDecisions(actionRequests.map(() => ({ type: "approve" })));
-  const handleReject = () =>
-    submitDecisions(actionRequests.map(() => ({ type: "reject" })));
+  const handleAccept = () => submitDecisions("approve");
+  const handleReject = () => submitDecisions("reject");
 
   return (
     <div className="w-full max-w-[min(560px,100%)] overflow-hidden rounded-xl border border-border/60 bg-card/50">
@@ -98,14 +117,22 @@ export function InterruptCard({
           Approval required
         </span>
         <Badge className="ml-auto" variant="secondary">
-          {actionRequests.length > 0
-            ? `${actionRequests.length} pending`
-            : "Pending"}
+          {outcome !== null
+            ? "Resolved"
+            : actionRequests.length > 0
+              ? `${actionRequests.length} pending`
+              : "Pending"}
         </Badge>
-        {!active && (
-          <span className="text-[11px] text-muted-foreground">
-            (handled elsewhere)
-          </span>
+        {outcome !== null ? (
+          <Badge variant={outcome === "approve" ? "default" : "outline"}>
+            {outcome === "approve" ? "Approved" : "Rejected"}
+          </Badge>
+        ) : (
+          !active && (
+            <span className="text-[11px] text-muted-foreground">
+              (handled elsewhere)
+            </span>
+          )
         )}
       </div>
 
@@ -135,11 +162,11 @@ export function InterruptCard({
           </p>
         )}
 
-        {active && (
+        {active && outcome === null && (
           <div className="mt-1 flex items-center gap-2">
             <Button
               className="h-7 px-2.5 text-[12px]"
-              disabled={pending}
+              disabled={resolving}
               onClick={handleAccept}
               type="button"
             >
@@ -148,7 +175,7 @@ export function InterruptCard({
             </Button>
             <Button
               className="h-7 px-2.5 text-[12px]"
-              disabled={pending}
+              disabled={resolving}
               onClick={handleReject}
               type="button"
               variant="outline"
@@ -156,6 +183,28 @@ export function InterruptCard({
               <XIcon />
               Reject
             </Button>
+          </div>
+        )}
+
+        {resolving && (
+          <div className="mt-1 flex items-center gap-1.5 text-[12px] text-muted-foreground">
+            <LoaderCircleIcon className="size-3.5 animate-spin" />
+            {outcome === "approve" ? "Approving…" : "Rejecting…"}
+          </div>
+        )}
+
+        {!resolving && outcome !== null && (
+          <div className="mt-1 flex items-center gap-1.5 text-[12px] text-muted-foreground">
+            {outcome === "approve" ? (
+              <CheckIcon className="size-3.5 text-green-500" />
+            ) : (
+              <XIcon className="size-3.5 text-red-500" />
+            )}
+            <span>
+              {outcome === "approve"
+                ? "Approved — the agent continued below."
+                : "Rejected — the agent continued below."}
+            </span>
           </div>
         )}
       </div>
