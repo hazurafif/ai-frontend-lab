@@ -1,9 +1,10 @@
 "use client";
 
 import type { UseChatHelpers } from "@ai-sdk/react";
-import { ArrowDownIcon } from "lucide-react";
+import { ArrowDownIcon, CornerDownRightIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useMessages } from "@/hooks/use-messages";
+import { fetchThreadFollowUps } from "@/lib/threads";
 import type { ChatMessage } from "@/lib/types";
 import { Greeting } from "./greeting";
 import { PreviewMessage, ThinkingMessage } from "./message";
@@ -18,6 +19,8 @@ type MessagesProps = {
   isLoading?: boolean;
   onEditMessage?: (message: ChatMessage) => void;
   onRewind?: (message: ChatMessage) => void;
+  /** Send a suggested follow-up question as a new user message. */
+  onSendPrompt?: (text: string) => void;
 };
 
 function PureMessages({
@@ -29,6 +32,7 @@ function PureMessages({
   isLoading,
   onEditMessage,
   onRewind,
+  onSendPrompt,
 }: MessagesProps) {
   const {
     containerRef: messagesContainerRef,
@@ -45,9 +49,44 @@ function PureMessages({
   useEffect(() => {
     if (prevChatIdRef.current !== chatId) {
       prevChatIdRef.current = chatId;
+      setFollowUps(null);
       reset();
     }
   }, [chatId, reset]);
+
+  // Suggested follow-up questions (backend POST /threads/{id}/followup),
+  // fetched once per completed run and shown under the assistant message
+  // they belong to. Re-fetches when the last message id changes.
+  const lastMessage = messages.at(-1);
+  const lastMessageId = lastMessage?.id ?? null;
+  const [followUps, setFollowUps] = useState<{
+    messageId: string;
+    items: string[];
+  } | null>(null);
+
+  useEffect(() => {
+    if (
+      status !== "ready" ||
+      lastMessageId === null ||
+      lastMessage?.role !== "assistant"
+    ) {
+      return;
+    }
+    let cancelled = false;
+    fetchThreadFollowUps(chatId)
+      .then((data) => {
+        if (cancelled || !data || data.followups.length === 0) {
+          return;
+        }
+        setFollowUps({ items: data.followups, messageId: lastMessageId });
+      })
+      .catch(() => {
+        // offline / no report — no suggestions
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [chatId, lastMessage?.role, lastMessageId, status]);
 
   const handleScrollToBottom = useCallback(() => {
     scrollToBottom("smooth");
@@ -92,6 +131,31 @@ function PureMessages({
           ))}
 
           {isLoading && messages.at(-1)?.role === "user" && <ThinkingMessage />}
+
+          {followUps &&
+            followUps.messageId === lastMessageId &&
+            lastMessage?.role === "assistant" &&
+            status === "ready" &&
+            !isLoading && (
+              <div className="flex flex-col gap-2 pl-3">
+                <span className="text-[11px] text-muted-foreground">
+                  Suggested
+                </span>
+                <div className="flex flex-col items-start gap-1.5">
+                  {followUps.items.map((question) => (
+                    <button
+                      className="flex w-fit max-w-[min(480px,100%)] items-start gap-2 rounded-xl border border-border/60 bg-card/50 px-3 py-2 text-left text-[12px] text-foreground transition-colors duration-150 hover:border-foreground/30 hover:bg-muted/40"
+                      key={question}
+                      onClick={() => onSendPrompt?.(question)}
+                      type="button"
+                    >
+                      <CornerDownRightIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+                      {question}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
           <div ref={messagesEndRef} />
         </div>

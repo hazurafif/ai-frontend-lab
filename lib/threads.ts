@@ -90,6 +90,30 @@ export async function fetchThreadUsage(
   return (await res.json()) as ThreadUsage;
 }
 
+// POST /threads/{id}/followup (backend `FollowUpOut`): auto-title + up to 3
+// suggested follow-up questions for the last run. `followups` is empty when
+// generation is unavailable; null when the thread has no report yet.
+export type ThreadFollowUp = {
+  thread_id: string;
+  title: string;
+  generated: boolean;
+  followups: string[];
+};
+
+/** Post-run follow-up: suggested questions the user can click to continue. */
+export async function fetchThreadFollowUps(
+  threadId: string,
+): Promise<ThreadFollowUp | null> {
+  const res = await threadFetch(
+    `/api/chat/threads/${encodeURIComponent(threadId)}/followup`,
+    { method: "POST" },
+  );
+  if (!res.ok) {
+    return null;
+  }
+  return (await res.json()) as ThreadFollowUp;
+}
+
 /** Delete a thread server-side (checkpoint, history rows, metadata). */
 export async function deleteThread(threadId: string): Promise<void> {
   await threadFetch(`/api/chat/threads/${encodeURIComponent(threadId)}`, {

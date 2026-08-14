@@ -115,6 +115,12 @@ export function ChatShell() {
           messages={messages}
           onEditMessage={handleEditMessage}
           onRewind={(message) => rewindMessage(message.id)}
+          onSendPrompt={(prompt) =>
+            sendMessage({
+              parts: [{ text: prompt, type: "text" }],
+              role: "user",
+            })
+          }
           regenerate={regenerate}
           status={status}
         />
