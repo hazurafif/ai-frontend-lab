@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { fetchWithAuth } from "@/lib/auth";
 import { SETTINGS_CHANGED_EVENT } from "@/lib/constants";
 import { type ChatModel, chatModelsFromSource } from "@/lib/models";
 import { loadSettings } from "@/lib/settings";
@@ -10,7 +11,9 @@ import { loadSettings } from "@/lib/settings";
 //   - with a saved connection (settings → modelConnection): POSTs it so the
 //     list comes from the chosen source (OpenAI / Gemini / custom);
 //   - without one: GETs the server-configured env source
-//     (MODELS_BASE_URL / MODELS_API_KEY in .env.local).
+//     (MODELS_BASE_URL / MODELS_API_KEY in .env.local), or — when that is
+//     not configured — the backend's current default `llm` connection
+//     (the route forwards the auth header to /agent/connections).
 //
 // Returns null while loading or when the fetch fails so callers can fall
 // back to the built-in chatModels list. Refetches whenever settings change
@@ -35,15 +38,16 @@ export function useAvailableModels(): ChatModel[] | null {
     let cancelled = false;
 
     // Mount-gated read (hydration rule): localStorage is only ever touched
-    // inside effects, never during render.
+    // inside effects, never during render. fetchWithAuth attaches the
+    // Bearer token so the GET fallback can read the backend's connections.
     const connection = loadSettings().modelConnection;
     const request = connection
-      ? fetch("/api/models", {
+      ? fetchWithAuth("/api/models", {
           body: JSON.stringify(connection),
           headers: { "Content-Type": "application/json" },
           method: "POST",
         })
-      : fetch("/api/models");
+      : fetchWithAuth("/api/models");
 
     request
       .then((res) =>

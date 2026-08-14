@@ -43,7 +43,7 @@ export const ModelSelectorContent = ({
   ...props
 }: ModelSelectorContentProps) => (
   <PopoverContent
-    align="end"
+    align="start"
     className={cn(
       "w-[280px] p-0 rounded-xl border border-border/60 bg-card/95 backdrop-blur-xl shadow-[var(--shadow-float)] animate-none!",
       className

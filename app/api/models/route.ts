@@ -5,7 +5,11 @@
 //
 //   GET  /api/models → the server-configured source (MODELS_BASE_URL /
 //                      MODELS_API_KEY in .env.local, mirroring the backend's
-//                      OPENAI_BASE_URL / OPENAI_API_KEY).
+//                      OPENAI_BASE_URL / OPENAI_API_KEY). When that is not
+//                      configured, falls back to the backend's current
+//                      default `llm` connection (GET /connections) and
+//                      lists ITS /v1/models — so the chat input always
+//                      reflects the connection the agent actually uses.
 //   POST /api/models → the source from the request body (settings page
 //                      connection): { provider, baseUrl, apiKey } with
 //                      provider ∈ "openai" | "gemini" | "custom" | "default".
@@ -20,6 +24,7 @@ import { type CompletionProviderId, completionProvider } from "@/lib/models";
 
 const MODELS_BASE_URL = process.env.MODELS_BASE_URL;
 const MODELS_API_KEY = process.env.MODELS_API_KEY;
+const BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:8000";
 
 type ModelsRequest = {
   provider?: CompletionProviderId;
@@ -27,7 +32,28 @@ type ModelsRequest = {
   apiKey?: string;
 };
 
-export async function GET() {
+// Backend /connections rows (admin; tokens are masked server-side, so a
+// local /v1/models endpoint — e.g. vLLM — serves the list without auth).
+type BackendConnection = {
+  name: string;
+  kind: "llm" | "embeddings" | string;
+  base_url: string | null;
+  is_default: boolean;
+  created_at?: string;
+};
+
+export async function GET(request: Request) {
+  // No env source: ask the backend for the connection the agent currently
+  // uses and list ITS models. `fetchWithAuth` on the client attaches the
+  // Bearer token; forward it so the backend accepts the read.
+  if (!MODELS_BASE_URL || !MODELS_API_KEY) {
+    const fromBackend = await modelsFromBackendConnection(
+      request.headers.get("authorization"),
+    );
+    if (fromBackend) {
+      return fromBackend;
+    }
+  }
   return handle({ provider: "default" });
 }
 
@@ -134,4 +160,73 @@ async function handle({
     );
 
   return Response.json({ models, provider: source.prefix });
+}
+
+/**
+ * Lists the models of the backend's current default `llm` connection
+ * (GET /connections — the admin store the agent resolves at startup).
+ * The connection's api_token is masked server-side, so the /v1/models call
+ * is made without a bearer key — local OpenAI-compatible servers (vLLM,
+ * LM Studio) serve the list without auth. Returns null when there is no
+ * connection, the backend is unreachable, or the list cannot be fetched
+ * (the caller then falls back to the env source / built-in list).
+ */
+async function modelsFromBackendConnection(
+  authorization: string | null,
+): Promise<Response | null> {
+  let connections: BackendConnection[];
+  try {
+    const res = await fetch(`${BACKEND_URL}/connections`, {
+      headers: {
+        Accept: "application/json",
+        ...(authorization ? { Authorization: authorization } : {}),
+      },
+      cache: "no-store",
+    });
+    if (!res.ok) {
+      return null;
+    }
+    connections = (await res.json()) as BackendConnection[];
+  } catch {
+    return null;
+  }
+
+  // Mirror the backend's get_default(): is_default first, then first created.
+  const llm = connections
+    .filter((connection) => connection.kind === "llm")
+    .sort(
+      (a, b) =>
+        Number(b.is_default) - Number(a.is_default) ||
+        String(a.created_at ?? "").localeCompare(String(b.created_at ?? "")),
+    )[0];
+  if (!llm?.base_url) {
+    return null;
+  }
+
+  let upstream: Response;
+  try {
+    upstream = await fetch(`${llm.base_url.replace(/\/+$/, "")}/models`, {
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+  } catch {
+    return null;
+  }
+  if (!upstream.ok) {
+    return null;
+  }
+
+  const body = (await upstream.json()) as {
+    data?: Array<{ id?: string; name?: string }>;
+  };
+  const models = (body.data ?? [])
+    .map((model) => ({ id: model.id, name: model.name ?? model.id }))
+    .filter((model): model is { id: string; name: string } =>
+      Boolean(model.id),
+    );
+  if (models.length === 0) {
+    return null;
+  }
+
+  return Response.json({ models, provider: "openai" });
 }
