@@ -1191,7 +1191,11 @@ function ModelTab({
                   </Button>
                 }
               />
-              <ModelSelectorContent align="start" side="bottom">
+              <ModelSelectorContent
+                align="start"
+                commandDefaultValue={modelId}
+                side="bottom"
+              >
                 <ModelSelectorInput placeholder="Search models…" />
                 <ModelSelectorList>
                   <ModelSelectorEmpty>No models found.</ModelSelectorEmpty>

@@ -151,19 +151,20 @@ export function MultimodalInput({
                 </Button>
               }
             />
-            <ModelSelectorContent>
+            <ModelSelectorContent commandDefaultValue={selectedModelId}>
               <ModelSelectorInput placeholder="Search models..." />
               <ModelSelectorList>
                 <ModelSelectorEmpty>No models found</ModelSelectorEmpty>
                 <ModelSelectorGroup>
                   {models.map((model) => (
                     <ModelSelectorItem
-                      key={model.id}
                       data-checked={selectedModelId === model.id || undefined}
+                      key={model.id}
                       onSelect={() => {
                         setModelSelectorOpen(false);
                         onModelChange(model.id);
                       }}
+                      value={model.id}
                     >
                       <div className="flex flex-col gap-0.5">
                         <div className="font-medium">{model.name}</div>
