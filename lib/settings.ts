@@ -184,6 +184,36 @@ export type AppSettings = {
   connections: ConnectionsPolicy;
 };
 
+// Wire shapes — the backend returns snake_case (max_timeout, inherit_env,
+// fallback_env); mapped to the camelCase AppSettings above.
+type AppSettingsOut = {
+  execute: {
+    enabled: boolean;
+    max_timeout: number;
+    inherit_env: boolean;
+    source: SettingsSource;
+  };
+  connections: {
+    fallback_env: boolean;
+    source: SettingsSource;
+  };
+};
+
+function toAppSettings(out: AppSettingsOut): AppSettings {
+  return {
+    execute: {
+      enabled: out.execute.enabled,
+      inheritEnv: out.execute.inherit_env,
+      maxTimeout: out.execute.max_timeout,
+      source: out.execute.source,
+    },
+    connections: {
+      fallbackEnv: out.connections.fallback_env,
+      source: out.connections.source,
+    },
+  };
+}
+
 export type AppSettingsPatch = {
   execute?: Partial<
     Pick<ExecuteSettings, "enabled" | "maxTimeout" | "inheritEnv">
@@ -193,7 +223,7 @@ export type AppSettingsPatch = {
 
 export async function fetchAppSettings(): Promise<AppSettings> {
   const res = await adminFetch("/settings");
-  return (await res.json()) as AppSettings;
+  return toAppSettings((await res.json()) as AppSettingsOut);
 }
 
 export async function updateAppSettings(
@@ -214,7 +244,7 @@ export async function updateAppSettings(
         : undefined,
     }),
   });
-  return (await res.json()) as AppSettings;
+  return toAppSettings((await res.json()) as AppSettingsOut);
 }
 
 // --- Connections (GET/POST /connections, GET/PUT/DELETE /connections/{name}) -
