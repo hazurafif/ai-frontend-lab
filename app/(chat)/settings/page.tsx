@@ -51,7 +51,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
-import { type ChatModel, chatModels, DEFAULT_CHAT_MODEL } from "@/lib/models";
+import { chatModelName, chatModels } from "@/lib/models";
 import {
   createSkill as apiCreateSkill,
   createToolServer as apiCreateToolServer,
@@ -914,18 +914,32 @@ function ModelTab({
   setSettings: (updater: (current: SettingsState) => SettingsState) => void;
 }) {
   const [modelId, setModelId] = useState(settings.model);
-  const model: ChatModel | undefined = useMemo(
-    () => chatModels.find((m) => m.id === modelId) ?? chatModels[0],
-    [modelId],
-  );
 
   useEffect(() => {
     setModelId(settings.model);
   }, [settings.model]);
 
+  // The built-in list plus the currently configured model when the backend
+  // reports one the frontend doesn't know (e.g. a DEEPAGENTS_MODEL env var).
+  // It must stay visible/selectable instead of silently falling back to the
+  // first built-in entry.
+  const modelOptions = useMemo(() => {
+    if (chatModels.some((m) => m.id === modelId)) {
+      return chatModels;
+    }
+    return [
+      ...chatModels,
+      {
+        id: modelId,
+        name: modelId,
+        description: "Configured on the backend (not in the built-in list)",
+      },
+    ];
+  }, [modelId]);
+
   const save = () => {
     setSettings((current) => ({ ...current, model: modelId }));
-    toast.success(`Model set to ${modelId}`);
+    toast.success(`Model set to ${chatModelName(modelId)}`);
   };
 
   return (
@@ -935,7 +949,7 @@ function ModelTab({
           <Field>
             <FieldLabel>Chat model</FieldLabel>
             <Combobox
-              value={model?.id ?? DEFAULT_CHAT_MODEL}
+              value={modelId}
               onValueChange={(value) => {
                 if (value !== null) {
                   setModelId(value);
@@ -943,12 +957,14 @@ function ModelTab({
               }}
             >
               <ComboboxTrigger>
-                <ComboboxValue />
+                <ComboboxValue>
+                  {(value: string) => chatModelName(value)}
+                </ComboboxValue>
               </ComboboxTrigger>
               <ComboboxContent>
                 <ComboboxInput placeholder="Search models…" />
                 <ComboboxList>
-                  {chatModels.map((m) => (
+                  {modelOptions.map((m) => (
                     <ComboboxItem key={m.id} value={m.id}>
                       <span className="font-medium">{m.name}</span>
                       <p className="text-[12px] text-muted-foreground">

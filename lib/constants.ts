@@ -14,3 +14,7 @@ export const REFRESH_TOKEN_KEY = "app-refresh-token";
 
 // Fired on window when the chat history list changes (new/renamed/deleted chats)
 export const HISTORY_CHANGED_EVENT = "chat-history-updated";
+
+// Fired on window whenever settings are saved, so live consumers (the chat
+// input's model selector) can pick up changes without a page reload.
+export const SETTINGS_CHANGED_EVENT = "app-settings-updated";

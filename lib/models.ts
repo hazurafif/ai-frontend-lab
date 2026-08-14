@@ -32,3 +32,14 @@ export const chatModels: ChatModel[] = [
     name: "Gemini 2.5 Flash",
   },
 ];
+
+export function getChatModel(id: string): ChatModel | undefined {
+  return chatModels.find((model) => model.id === id);
+}
+
+// Display name for a model id. Falls back to the raw id for models the
+// backend reports but the frontend does not know (e.g. a DEEPAGENTS_MODEL
+// configured outside the built-in list).
+export function chatModelName(id: string): string {
+  return getChatModel(id)?.name ?? id;
+}
