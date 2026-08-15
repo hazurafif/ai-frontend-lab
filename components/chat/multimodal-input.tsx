@@ -191,12 +191,7 @@ function McpServerItems({ rows }: { rows: McpRow[] }) {
       </DropdownMenuLabel>
       {rows.length === 0 ? (
         <DropdownMenuItem disabled>
-          <span className="flex flex-col gap-0.5">
-            <span className="text-muted-foreground">No servers connected</span>
-            <span className="text-[11px] text-muted-foreground/70">
-              Add MCP tool servers in Settings → Tools
-            </span>
-          </span>
+          <span className="text-muted-foreground">No servers connected</span>
         </DropdownMenuItem>
       ) : (
         rows.map((row) => (

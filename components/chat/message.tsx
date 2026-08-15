@@ -10,7 +10,7 @@ import {
   RefreshCwIcon,
   RotateCcwIcon,
 } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import { Dotm3x3_1 } from "@/components/ui/dotm-3x3-1";
 import {
   Popover,
   PopoverContent,
@@ -45,6 +46,69 @@ import { Shimmer } from "../ai-elements/shimmer";
 import { SubagentCard } from "../ai-elements/subagent-card";
 import { ToolCard, type ToolUIPart } from "../ai-elements/tool-card";
 import { SparklesIcon } from "./icons";
+
+/**
+ * Compact duration label: seconds under a minute, otherwise m + s.
+ */
+function formatRunTime(totalSeconds: number): string {
+  if (totalSeconds < 60) {
+    return `${totalSeconds}s`;
+  }
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return seconds === 0 ? `${minutes}m` : `${minutes}m ${seconds}s`;
+}
+
+/**
+ * Run status for the last assistant message: a dot-matrix glyph + live
+ * elapsed time while the answer streams, then a settled "worked for 25s"
+ * summary (no glyph) once the run finishes. Shown after the actions, on
+ * the right of the Edit button.
+ */
+function RunStatus({
+  status,
+}: {
+  status: UseChatHelpers<ChatMessage>["status"];
+}) {
+  const running = status === "submitted" || status === "streaming";
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    if (!running) {
+      return;
+    }
+    const start = Date.now();
+    setElapsed(0);
+    const interval = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - start) / 1000));
+    }, 500);
+    return () => clearInterval(interval);
+  }, [running]);
+
+  if (running) {
+    return (
+      <span
+        aria-label={`Answering for ${formatRunTime(elapsed)}`}
+        className="flex items-center gap-1.5 text-[11px] tabular-nums text-muted-foreground"
+        role="status"
+      >
+        <Dotm3x3_1 ariaLabel="Answering" size={14} />
+        {formatRunTime(elapsed)}
+      </span>
+    );
+  }
+
+  if (elapsed === 0) {
+    return null;
+  }
+
+  return (
+    <span className="text-[11px] font-medium tabular-nums text-foreground/80">
+      {status === "error" ? "Stopped after" : "Worked for"}{" "}
+      {formatRunTime(elapsed)}
+    </span>
+  );
+}
 
 function ThinkingText() {
   return (
@@ -147,6 +211,8 @@ function PreviewMessage({
 }) {
   const isUser = message.role === "user";
   const isAssistant = message.role === "assistant";
+  // A run is in flight while the status is submitted/streaming.
+  const isStreaming = status === "submitted" || status === "streaming";
 
   // Rewind confirmation: the action drops this message and everything after
   // it — not undoable, so confirm first.
@@ -341,36 +407,43 @@ function PreviewMessage({
   ) : (
     <>
       {parts}
-      {isAssistant && isLast && status === "ready" && onRegenerate && (
-        <MessageActions className="pt-1 max-md:opacity-100 md:opacity-0 md:transition-opacity md:group-hover/message:opacity-100 md:focus-within:opacity-100">
-          <MessageAction label="Copy" onClick={handleCopy} tooltip="Copy">
-            <CopyIcon />
-          </MessageAction>
-          <MessageAction
-            label="Regenerate"
-            onClick={() => onRegenerate()}
-            tooltip="Regenerate"
-          >
-            <RefreshCwIcon />
-          </MessageAction>
-          {onEdit && (
-            <MessageAction
-              label="Edit"
-              onClick={() => onEdit(message)}
-              tooltip="Edit"
-            >
-              <svg className="size-3.5" fill="none" viewBox="0 0 24 24">
-                <path
-                  d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"
-                  stroke="currentColor"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth="2"
-                />
-              </svg>
-            </MessageAction>
+      {isAssistant && isLast && onRegenerate && (
+        /* RunStatus stays mounted across the streaming → ready transition
+            so its elapsed timer survives; only the action buttons swap. */
+        <div className="flex items-center gap-1 pt-1">
+          {!isStreaming && (
+            <MessageActions className="max-md:opacity-100 md:opacity-0 md:transition-opacity md:group-hover/message:opacity-100 md:focus-within:opacity-100">
+              <MessageAction label="Copy" onClick={handleCopy} tooltip="Copy">
+                <CopyIcon />
+              </MessageAction>
+              <MessageAction
+                label="Regenerate"
+                onClick={() => onRegenerate()}
+                tooltip="Regenerate"
+              >
+                <RefreshCwIcon />
+              </MessageAction>
+              {onEdit && (
+                <MessageAction
+                  label="Edit"
+                  onClick={() => onEdit(message)}
+                  tooltip="Edit"
+                >
+                  <svg className="size-3.5" fill="none" viewBox="0 0 24 24">
+                    <path
+                      d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"
+                      stroke="currentColor"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                    />
+                  </svg>
+                </MessageAction>
+              )}
+            </MessageActions>
           )}
-        </MessageActions>
+          <RunStatus status={status} />
+        </div>
       )}
     </>
   );
