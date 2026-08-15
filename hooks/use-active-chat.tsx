@@ -28,11 +28,7 @@ import { readSSE } from "@/lib/chat/sse";
 import { HISTORY_CHANGED_EVENT } from "@/lib/constants";
 import { ChatbotError } from "@/lib/errors";
 import { DEFAULT_CHAT_MODEL } from "@/lib/models";
-import {
-  DEFAULT_SETTINGS,
-  loadSettings,
-  type ThinkingEffort,
-} from "@/lib/settings";
+import { DEFAULT_SETTINGS, type ThinkingEffort } from "@/lib/settings";
 import {
   lastActiveStorageKey,
   messagesStorageKey,
@@ -261,9 +257,9 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
               messages: request.messages,
               selectedChatModel: currentModelIdRef.current,
               thinking: thinkingEffortRef.current,
-              // Web-search toggle from /settings; the backend overrides its
-              // SEARXNG_ENABLED config per request (enableSearch alias).
-              enableSearch: loadSettings().searxngEnabled,
+              // Web search is a backend per-user preference now (settings
+              // PATCHes /users/me/preferences); no enable_search override
+              // is sent, so the stored pref applies per request.
               ...request.body,
             },
           };
@@ -739,7 +735,6 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
               messages: messagesRef.current,
               selectedChatModel: currentModelIdRef.current,
               thinking: thinkingEffortRef.current,
-              enableSearch: loadSettings().searxngEnabled,
               ...decisionPayload,
             }),
           },

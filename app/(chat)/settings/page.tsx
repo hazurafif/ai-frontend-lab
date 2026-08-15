@@ -78,6 +78,10 @@ import {
   type ModelConnection,
 } from "@/lib/models";
 import {
+  fetchSearchPreference,
+  updateSearchPreference,
+} from "@/lib/preferences";
+import {
   createSkill as apiCreateSkill,
   createToolServer as apiCreateToolServer,
   deleteSkill as apiDeleteSkill,
@@ -859,6 +863,22 @@ function GeneralTab({
 }) {
   const [prompt, setPrompt] = useState(settings.systemPrompt);
   const [searxng, setSearxng] = useState(settings.searxngEnabled);
+  // Web-search preference lives on the backend now (per-user table): the
+  // stored value wins over the local cache on load, and toggling PATCHes
+  // it live — the chat transport no longer sends enable_search.
+  useEffect(() => {
+    let cancelled = false;
+    fetchSearchPreference()
+      .then((pref) => {
+        if (!cancelled && pref !== null) {
+          setSearxng(pref);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   // Defensive: settings.execute is normalized on load and after every
   // backend sync, but a partial value must never reach a Switch's `checked`
   // (controlled → uncontrolled React warnings) — fall back per field.
@@ -905,6 +925,16 @@ function GeneralTab({
       searxngEnabled: searxng,
     }));
     toast.success("Settings saved");
+  };
+
+  // Live web-search toggle: optimistic UI + immediate PATCH to the backend
+  // per-user preference (chat requests no longer carry enable_search).
+  const toggleSearch = (value: boolean) => {
+    setSearxng(value);
+    setSettings((current) => ({ ...current, searxngEnabled: value }));
+    updateSearchPreference(value).catch(() => {
+      toast.error("Couldn't save the web-search preference");
+    });
   };
 
   const toggleHitlTool = (tool: string, enabled: boolean) => {
@@ -1042,7 +1072,7 @@ function GeneralTab({
           </div>
           <Switch
             checked={searxng}
-            onCheckedChange={setSearxng}
+            onCheckedChange={toggleSearch}
             aria-label="Web search"
           />
         </div>
