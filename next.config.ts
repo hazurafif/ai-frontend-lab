@@ -1,3 +1,4 @@
+import { withSerwist } from "@serwist/turbopack";
 import type { NextConfig } from "next";
 
 const basePath = process.env.IS_DEMO === "1" ? "/demo" : "";
@@ -17,14 +18,12 @@ const nextConfig: NextConfig = {
         ],
       }
     : {}),
-  cacheComponents: true,
   devIndicators: false,
   env: {
     NEXT_PUBLIC_BASE_PATH: basePath,
   },
   experimental: {
     appNewScrollHandler: true,
-    cachedNavigations: true,
     inlineCss: true,
     prefetchInlining: true,
     turbopackFileSystemCacheForDev: true,
@@ -39,4 +38,4 @@ const nextConfig: NextConfig = {
   reactCompiler: true,
 };
 
-export default nextConfig;
+export default withSerwist(nextConfig);

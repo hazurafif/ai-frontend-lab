@@ -7,6 +7,7 @@ import {
   CheckIcon,
   ChevronDownIcon,
   MicIcon,
+  MoreHorizontalIcon,
   PlusIcon,
   PuzzleIcon,
   SquareIcon,
@@ -51,6 +52,7 @@ import {
   DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Kbd } from "@/components/ui/kbd";
@@ -66,12 +68,15 @@ import { useThreads } from "@/lib/chat/chat-store";
 import { THREAD_ACTIVITY_EVENT } from "@/lib/constants";
 import { chatModelName, chatModels } from "@/lib/models";
 import {
+  type BackendToolServer,
   fetchBackendHealth,
+  fetchToolServers,
   THINKING_EFFORTS,
   type ThinkingEffort,
 } from "@/lib/settings";
 import { fetchThreadUsage, type ThreadUsage } from "@/lib/threads";
 import type { ChatMessage } from "@/lib/types";
+import { cn } from "@/lib/utils";
 import { SparklesIcon } from "./icons";
 
 const THINKING_EFFORT_LABELS: Record<ThinkingEffort, string> = {
@@ -138,6 +143,108 @@ function tokenlensModelId(model: string | null | undefined): string | null {
   return null;
 }
 
+/** A single MCP server row in the tool-servers popover. */
+type McpRow = {
+  id: string;
+  name: string;
+  connected: boolean;
+  enabled: boolean;
+  endpoint: string | null;
+};
+
+/** Thinking-effort picker items (shared by the desktop popover and the
+ *  mobile overflow menu). */
+function ThinkingEffortItems({
+  current,
+  onSelect,
+}: {
+  current: ThinkingEffort;
+  onSelect: (effort: ThinkingEffort) => void;
+}) {
+  return (
+    <DropdownMenuGroup>
+      <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">
+        Thinking effort
+      </DropdownMenuLabel>
+      {THINKING_EFFORTS.map((effort) => (
+        <DropdownMenuItem key={effort} onClick={() => onSelect(effort)}>
+          <span className="flex-1">{THINKING_EFFORT_LABELS[effort]}</span>
+          {current === effort && <CheckIcon className="size-4" />}
+        </DropdownMenuItem>
+      ))}
+    </DropdownMenuGroup>
+  );
+}
+
+/** MCP tool-server rows (shared by the desktop popover and the mobile
+ *  overflow menu). */
+function McpServerItems({ rows }: { rows: McpRow[] }) {
+  return (
+    <DropdownMenuGroup>
+      <DropdownMenuLabel className="flex items-center justify-between text-xs font-medium text-muted-foreground">
+        <span>MCP tool servers</span>
+        {rows.length > 0 && (
+          <span className="text-[11px] font-normal">
+            {rows.length} connected
+          </span>
+        )}
+      </DropdownMenuLabel>
+      {rows.length === 0 ? (
+        <DropdownMenuItem disabled>
+          <span className="flex flex-col gap-0.5">
+            <span className="text-muted-foreground">No servers connected</span>
+            <span className="text-[11px] text-muted-foreground/70">
+              Add MCP tool servers in Settings → Tools
+            </span>
+          </span>
+        </DropdownMenuItem>
+      ) : (
+        rows.map((row) => (
+          <DropdownMenuItem disabled key={row.id}>
+            <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+              <span className="flex min-w-0 items-center gap-2">
+                <span
+                  aria-hidden
+                  className={cn(
+                    "size-1.5 shrink-0 rounded-full",
+                    row.connected && row.enabled
+                      ? "bg-green-500"
+                      : row.enabled
+                        ? "bg-amber-400"
+                        : "bg-muted-foreground/40",
+                  )}
+                />
+                <span
+                  className={cn(
+                    "truncate font-mono text-[12px]",
+                    !row.enabled && "text-muted-foreground/60",
+                  )}
+                >
+                  {row.name}
+                </span>
+                {!row.enabled ? (
+                  <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">
+                    disabled
+                  </span>
+                ) : row.connected ? null : (
+                  <span className="ml-auto shrink-0 text-[10px] text-amber-500">
+                    not connected
+                  </span>
+                )}
+              </span>
+              {row.endpoint && (
+                <span className="truncate pl-3.5 font-mono text-[11px] text-muted-foreground">
+                  {row.endpoint}
+                </span>
+              )}
+            </span>
+          </DropdownMenuItem>
+        ))
+      )}
+    </DropdownMenuGroup>
+  );
+}
+
 type MultimodalInputProps = {
   chatId: string;
   editingMessage: ChatMessage | null;
@@ -196,6 +303,11 @@ export function MultimodalInput({
   const [executeEnabled, setExecuteEnabled] = useState<boolean | null>(null);
   // MCP tool servers connected on the backend (GET /health mcp_servers).
   const [mcpServers, setMcpServers] = useState<string[]>([]);
+  // Configured servers from /agent/tools (admin-only; null = unavailable to
+  // this user) — enriches the popover rows with endpoints + enabled state.
+  const [toolServers, setToolServers] = useState<BackendToolServer[] | null>(
+    null,
+  );
   // Context + usage report (GET /threads/{id}/usage). Refetches when the
   // thread changes, a run settles, or any run lifecycle event lands
   // (THREAD_ACTIVITY_EVENT — cheap endpoint, keeps the ring and the
@@ -283,23 +395,58 @@ export function MultimodalInput({
   const [isMac, setIsMac] = useState(true);
 
   // Backend execute capability for the upload button (EXECUTE_ENABLED) +
-  // connected MCP servers for the tools indicator.
-  useEffect(() => {
-    let cancelled = false;
+  // connected MCP servers for the tools indicator. Refetched on mount and
+  // every time the MCP popover opens so the list stays current.
+  const refreshMcpInfo = useCallback(() => {
     fetchBackendHealth()
       .then((health) => {
-        if (!cancelled) {
-          setExecuteEnabled(health?.execute?.enabled ?? null);
-          setMcpServers(health?.mcp_servers ?? []);
-        }
+        setExecuteEnabled(health?.execute?.enabled ?? null);
+        setMcpServers(health?.mcp_servers ?? []);
       })
       .catch(() => {
         // offline — leave unknown (uploads stay allowed)
       });
-    return () => {
-      cancelled = true;
-    };
+    // Configured servers (admin-only endpoint) enrich the rows with endpoint
+    // and enabled state; silently unavailable for non-admins.
+    fetchToolServers()
+      .then(setToolServers)
+      .catch(() => {
+        setToolServers(null);
+      });
   }, []);
+
+  useEffect(() => {
+    refreshMcpInfo();
+  }, [refreshMcpInfo]);
+
+  // Merged popover rows: connected servers first (health order), then
+  // configured-but-not-connected ones (sorted by name). Each row is
+  // enriched with the configured endpoint + enabled state when available.
+  const mcpRows = useMemo(() => {
+    const connected = new Set(mcpServers);
+    const byName = new Map((toolServers ?? []).map((s) => [s.name, s]));
+    const rows = mcpServers.map((name) => {
+      const cfg = byName.get(name);
+      return {
+        id: `live:${name}`,
+        name,
+        connected: true,
+        enabled: cfg?.enabled ?? true,
+        endpoint: cfg ? (cfg.url ?? cfg.command) : null,
+      };
+    });
+    const extras = (toolServers ?? [])
+      .filter((server) => !connected.has(server.name))
+      .map((server) => ({
+        id: `cfg:${server.name}`,
+        name: server.name,
+        connected: false,
+        enabled: server.enabled,
+        endpoint: server.url ?? server.command,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    return [...rows, ...extras];
+  }, [mcpServers, toolServers]);
 
   // Drop picked files when switching chats so attachments never leak.
   useEffect(() => {
@@ -574,6 +721,7 @@ export function MultimodalInput({
           <Textarea
             autoFocus
             className="max-h-[200px] min-h-10 flex-1 resize-none border-none bg-transparent px-1 shadow-none focus-visible:ring-0"
+            enterKeyHint="send"
             onChange={(event) => setInput(event.target.value)}
             onBlur={() => setInputFocused(false)}
             onFocus={() => setInputFocused(true)}
@@ -585,7 +733,9 @@ export function MultimodalInput({
           />
 
           {!inputFocused && !input && (
-            <Kbd className="shrink-0">{isMac ? "⌘K" : "Ctrl K"}</Kbd>
+            <Kbd className="hidden shrink-0 md:inline-flex">
+              {isMac ? "⌘K" : "Ctrl K"}
+            </Kbd>
           )}
         </div>
 
@@ -600,7 +750,7 @@ export function MultimodalInput({
             />
             <Button
               aria-label="Attach file"
-              className="text-muted-foreground/70"
+              className="max-md:size-11 text-muted-foreground/70"
               disabled={uploadDisabled}
               onClick={handlePickFiles}
               size="sm"
@@ -623,14 +773,14 @@ export function MultimodalInput({
                 render={
                   <Button
                     aria-label="Select model"
-                    className="text-muted-foreground/70 hover:text-foreground"
+                    className="max-md:h-10 text-muted-foreground/70 hover:text-foreground"
                     size="sm"
                     title={selectedModelName}
                     type="button"
                     variant="ghost"
                   >
                     <SparklesIcon data-icon="inline-start" />
-                    <span className="max-w-36 truncate">
+                    <span className="max-sm:hidden max-w-36 truncate">
                       {selectedModelName}
                     </span>
                     <ChevronDownIcon data-icon="inline-end" />
@@ -670,7 +820,7 @@ export function MultimodalInput({
                 render={
                   <Button
                     aria-label="Thinking effort"
-                    className="text-muted-foreground/70 hover:text-foreground"
+                    className="max-md:hidden text-muted-foreground/70 hover:text-foreground"
                     size="sm"
                     title={`Thinking effort: ${THINKING_EFFORT_LABELS[thinkingEffort]}`}
                     type="button"
@@ -693,33 +843,25 @@ export function MultimodalInput({
                 side="top"
                 sideOffset={8}
               >
-                <DropdownMenuGroup>
-                  <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">
-                    Thinking effort
-                  </DropdownMenuLabel>
-                  {THINKING_EFFORTS.map((effort) => (
-                    <DropdownMenuItem
-                      key={effort}
-                      onClick={() => onThinkingEffortChange(effort)}
-                    >
-                      <span className="flex-1">
-                        {THINKING_EFFORT_LABELS[effort]}
-                      </span>
-                      {thinkingEffort === effort && (
-                        <CheckIcon className="size-4" />
-                      )}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuGroup>
+                <ThinkingEffortItems
+                  current={thinkingEffort}
+                  onSelect={onThinkingEffortChange}
+                />
               </DropdownMenuContent>
             </DropdownMenu>
 
-            <DropdownMenu>
+            <DropdownMenu
+              onOpenChange={(open) => {
+                if (open) {
+                  refreshMcpInfo();
+                }
+              }}
+            >
               <DropdownMenuTrigger
                 render={
                   <Button
                     aria-label="MCP tool servers"
-                    className="text-muted-foreground/70 hover:text-foreground"
+                    className="max-md:hidden text-muted-foreground/70 hover:text-foreground"
                     size="sm"
                     title={
                       mcpServers.length > 0
@@ -744,33 +886,51 @@ export function MultimodalInput({
 
               <DropdownMenuContent
                 align="start"
-                className="min-w-44"
+                className="min-w-64"
                 side="top"
                 sideOffset={8}
               >
-                <DropdownMenuGroup>
-                  <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">
-                    Connected MCP servers
-                  </DropdownMenuLabel>
-                  {mcpServers.length === 0 ? (
-                    <DropdownMenuItem disabled>
-                      <span className="text-muted-foreground">
-                        No servers connected
-                      </span>
-                    </DropdownMenuItem>
-                  ) : (
-                    mcpServers.map((server) => (
-                      <DropdownMenuItem disabled key={server}>
-                        <span className="flex flex-1 items-center gap-2">
-                          <span className="size-1.5 rounded-full bg-green-500" />
-                          <span className="font-mono text-[12px]">
-                            {server}
-                          </span>
-                        </span>
-                      </DropdownMenuItem>
-                    ))
-                  )}
-                </DropdownMenuGroup>
+                <McpServerItems rows={mcpRows} />
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            {/* Mobile-only overflow menu: thinking effort + MCP servers
+                collapse under one “more” button on small screens. */}
+            <DropdownMenu
+              onOpenChange={(open) => {
+                if (open) {
+                  refreshMcpInfo();
+                }
+              }}
+            >
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    aria-label="More options"
+                    className="max-md:size-11 text-muted-foreground/70 hover:text-foreground md:hidden"
+                    size="icon-sm"
+                    type="button"
+                    variant="ghost"
+                  >
+                    <MoreHorizontalIcon className="size-4" />
+                  </Button>
+                }
+              >
+                <span className="sr-only">More options</span>
+              </DropdownMenuTrigger>
+
+              <DropdownMenuContent
+                align="start"
+                className="max-h-[50dvh] min-w-64 overflow-y-auto"
+                side="top"
+                sideOffset={8}
+              >
+                <ThinkingEffortItems
+                  current={thinkingEffort}
+                  onSelect={onThinkingEffortChange}
+                />
+                <DropdownMenuSeparator />
+                <McpServerItems rows={mcpRows} />
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
@@ -828,8 +988,8 @@ export function MultimodalInput({
                         }
                         className={
                           listening
-                            ? "bg-foreground/10 text-red-500 hover:bg-foreground/15 hover:text-red-500"
-                            : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                            ? "max-md:size-11 bg-foreground/10 text-red-500 hover:bg-foreground/15 hover:text-red-500"
+                            : "max-md:size-11 text-muted-foreground hover:bg-muted hover:text-foreground"
                         }
                         size="icon-sm"
                         type="button"
@@ -862,7 +1022,7 @@ export function MultimodalInput({
             {isLoading ? (
               <Button
                 aria-label="Stop generation"
-                className="bg-foreground text-background hover:bg-foreground/90"
+                className="max-md:size-11 bg-foreground text-background hover:bg-foreground/90"
                 onClick={stop}
                 size="icon-sm"
                 type="button"
@@ -872,7 +1032,7 @@ export function MultimodalInput({
             ) : (
               <Button
                 aria-label="Send message"
-                className="bg-foreground text-background hover:bg-foreground/90"
+                className="max-md:size-11 bg-foreground text-background hover:bg-foreground/90"
                 disabled={
                   (!input.trim() && attachments.length === 0) || runActive
                 }

@@ -373,7 +373,7 @@ export function UsersTab() {
               <AlertDescription>{loadError}</AlertDescription>
             </Alert>
           ) : (
-            <Table>
+            <Table className="min-w-[520px]">
               <TableHeader>
                 <TableRow>
                   <TableHead>Username</TableHead>

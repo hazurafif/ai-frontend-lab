@@ -26,6 +26,7 @@ import { KnowledgeBaseTab } from "@/components/settings/knowledge-base-tab";
 import {
   SETTINGS_TABS,
   type SettingsTabId,
+  settingsTabsForRole,
   useSettingsTabs,
 } from "@/components/settings/settings-tabs-context";
 import { UsersTab } from "@/components/settings/users-tab";
@@ -62,10 +63,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Tabs, TabsContent } from "@/components/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
 import { useAvailableModels } from "@/hooks/use-available-models";
+import { useIsMobile } from "@/hooks/use-mobile";
 import {
   type ChatModel,
   COMPLETION_PROVIDERS,
@@ -119,7 +121,7 @@ function Card({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       className={cn(
-        "rounded-2xl border border-border/60 bg-card p-5 shadow-[var(--shadow-card)]",
+        "rounded-2xl border border-border/60 bg-card p-4 shadow-[var(--shadow-card)] md:p-5",
         className,
       )}
       {...props}
@@ -674,7 +676,7 @@ function ToolsTab({
         </div>
       </div>
       <Card className="p-0">
-        <Table>
+        <Table className="min-w-[640px]">
           <TableHeader>
             <TableRow>
               <TableHead>Name</TableHead>
@@ -743,7 +745,7 @@ function ToolsTab({
           }
         }}
       >
-        <DialogContent className="sm:max-w-2xl">
+        <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>
               {settings.tools.some((t) => t.name === editing?.name)
@@ -1606,7 +1608,7 @@ function ModelTab({
             </p>
           ) : (
             <Card className="p-0">
-              <Table>
+              <Table className="min-w-[640px]">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Name</TableHead>
@@ -1696,7 +1698,7 @@ function ModelTab({
           }
         }}
       >
-        <DialogContent className="sm:max-w-2xl">
+        <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>
               {editing ? `Edit ${editing.name}` : "New connection"}
@@ -1854,6 +1856,7 @@ function ModelTab({
 export default function SettingsPage() {
   const { activeTab, setActiveTab } = useSettingsTabs();
   const { user } = useAuth();
+  const isMobile = useIsMobile();
   const [settings, setSettings] = useState<SettingsState>(DEFAULT_SETTINGS);
   const [loaded, setLoaded] = useState(false);
   const [backendOnline, setBackendOnline] = useState(false);
@@ -1956,7 +1959,7 @@ export default function SettingsPage() {
   }, []);
 
   return (
-    <div className="mx-auto flex h-dvh w-full max-w-4xl flex-col gap-6 px-4 py-6">
+    <div className="mx-auto flex h-dvh w-full max-w-4xl flex-col gap-6 px-4 pt-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))]">
       <div className="flex shrink-0 items-center">
         <h1 className="text-lg font-semibold">
           {SETTINGS_TABS.find((tab) => tab.id === activeTab)?.label ??
@@ -1966,11 +1969,24 @@ export default function SettingsPage() {
 
       {loaded && mounted && (
         <Tabs
-          orientation="vertical"
+          orientation={isMobile ? "horizontal" : "vertical"}
           onValueChange={(value) => setActiveTab(value as SettingsTabId)}
           value={activeTab}
           className="flex min-h-0 min-w-0 flex-1 flex-col"
         >
+          {/* Mobile tab strip: horizontally scrollable; desktop keeps the
+              settings navigation in the sidebar instead. */}
+          <TabsList
+            className="md:hidden w-full max-w-full shrink-0 justify-start gap-1 overflow-x-auto rounded-none bg-transparent p-0 group-data-horizontal/tabs:h-auto group-data-horizontal/tabs:py-2"
+            variant="line"
+          >
+            {settingsTabsForRole(user?.role).map((tab) => (
+              <TabsTrigger className="shrink-0" key={tab.id} value={tab.id}>
+                {tab.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+
           {/* Fixed-height content panel: switching tabs never changes the
               page layout; long content scrolls inside the panel. */}
           <div className="min-h-0 flex-1 overflow-y-auto pr-1">

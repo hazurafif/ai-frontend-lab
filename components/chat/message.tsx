@@ -336,7 +336,7 @@ function PreviewMessage({
     <>
       {parts}
       {isAssistant && isLast && status === "ready" && onRegenerate && (
-        <MessageActions className="pt-1 opacity-0 transition-opacity group-hover/message:opacity-100">
+        <MessageActions className="pt-1 max-md:opacity-100 md:opacity-0 md:transition-opacity md:group-hover/message:opacity-100 md:focus-within:opacity-100">
           <MessageAction label="Copy" onClick={handleCopy} tooltip="Copy">
             <CopyIcon />
           </MessageAction>
@@ -400,7 +400,7 @@ function PreviewMessage({
             {/* MessageFooter pattern: time + actions below the bubble,
                 aligned to its right edge (px-3.5 matches the bubble's
                 padding). Revealed on hover, like the actions. */}
-            <MessageActions className="w-full justify-end gap-2 px-3.5 pb-0.5 opacity-0 transition-opacity group-hover/message:opacity-100">
+            <MessageActions className="w-full justify-end gap-2 px-3.5 pb-0.5 max-md:opacity-100 md:opacity-0 md:transition-opacity md:group-hover/message:opacity-100 md:focus-within:opacity-100">
               {sentAt && (
                 <span className="text-[11px] tabular-nums text-muted-foreground">
                   {sentAt}
@@ -413,6 +413,7 @@ function PreviewMessage({
                       render={
                         <Button
                           aria-label="Rewind"
+                          className="max-md:size-9"
                           size="icon-sm"
                           type="button"
                           variant="ghost"

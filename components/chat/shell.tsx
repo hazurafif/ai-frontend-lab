@@ -165,7 +165,7 @@ export function ChatShell() {
           only way to open the sidebar sheet on small screens. */}
       <Button
         aria-label="Open sidebar"
-        className="absolute top-3 left-3 z-20 bg-sidebar/70 backdrop-blur-md hover:bg-sidebar-accent md:hidden"
+        className="absolute top-[calc(0.75rem+env(safe-area-inset-top))] left-3 z-20 max-md:size-9 bg-sidebar/70 backdrop-blur-md hover:bg-sidebar-accent md:hidden"
         onClick={toggleSidebar}
         size="icon-sm"
         variant="ghost"
@@ -205,7 +205,7 @@ export function ChatShell() {
             <div className="w-full max-w-4xl">{composer}</div>
           </div>
         ) : (
-          <div className="sticky bottom-0 z-1 mx-auto flex w-full max-w-4xl gap-2 border-t-0 bg-background px-2 pb-3 md:px-4 md:pb-4">
+          <div className="sticky bottom-0 z-1 mx-auto flex w-full max-w-4xl gap-2 border-t-0 bg-background px-2 pb-[calc(0.75rem+env(safe-area-inset-bottom))] md:px-4 md:pb-4">
             {composer}
           </div>
         )}
