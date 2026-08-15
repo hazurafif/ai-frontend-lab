@@ -236,6 +236,12 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
       generateId: generateUUID,
       id: chatId,
       messages: loadMessages(scope, chatId),
+      // Official AI SDK mitigation for chunk-per-render jank: with complex
+      // markdown (streamdown) + tool cards, re-rendering on every text-delta
+      // blocks the main thread (citation answers showed 50-200ms long tasks).
+      // Throttle UI updates to ~20fps; streaming still looks continuous
+      // because deltas arrive at 20-50/s and batch into each flush.
+      experimental_throttle: 50,
       onError: (error) => {
         if (error instanceof ChatbotError) {
           toast({ description: error.message, type: "error" });
