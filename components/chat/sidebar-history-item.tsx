@@ -7,6 +7,7 @@ import { toast } from "@/components/chat/toast";
 import { createChatShare } from "@/lib/share";
 import type { ThreadStatus } from "@/lib/threads";
 import type { ChatHistoryItem } from "@/lib/types";
+import { copyText } from "@/lib/utils";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -51,8 +52,15 @@ const PureChatItem = ({
   const handleShare = useCallback(async () => {
     try {
       const result = await createChatShare(chat.id);
-      await navigator.clipboard.writeText(result.url);
+      const ok = await copyText(result.url);
       closeMobile();
+      if (!ok) {
+        toast({
+          description: "Couldn't copy the share link — clipboard unavailable",
+          type: "error",
+        });
+        return;
+      }
       toast({
         description: "Share link copied to clipboard",
         type: "success",

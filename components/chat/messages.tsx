@@ -126,11 +126,7 @@ function PureMessages({
           <MessageScrollerViewport className="touch-pan-y">
             <MessageScrollerContent className="mx-auto w-full max-w-4xl gap-4 px-3 pt-4 pb-2 md:px-4">
               {messages.map((message, index) => (
-                <MessageScrollerItem
-                  key={message.id}
-                  messageId={message.id}
-                  scrollAnchor={message.role === "user"}
-                >
+                <MessageScrollerItem key={message.id} messageId={message.id}>
                   <PreviewMessage
                     chatId={chatId}
                     isLoading={isLoading ?? false}

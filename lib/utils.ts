@@ -73,6 +73,42 @@ export function sanitizeText(text: string) {
   return text.replace("<has_function_call>", "");
 }
 
+/**
+ * Copy text to the clipboard with a fallback for insecure contexts (LAN /
+ * plain HTTP — e.g. testing from a phone on the same Wi-Fi), where the
+ * async Clipboard API is unavailable or rejected. Returns false when
+ * nothing could be copied.
+ */
+export async function copyText(text: string): Promise<boolean> {
+  try {
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // Permissions policy / focus rejection — fall back below.
+  }
+  try {
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.setAttribute("readonly", "");
+    textarea.style.position = "fixed";
+    textarea.style.top = "0";
+    textarea.style.left = "0";
+    textarea.style.opacity = "0";
+    textarea.style.pointerEvents = "none";
+    textarea.style.zIndex = "-1";
+    document.body.appendChild(textarea);
+    textarea.select();
+    textarea.setSelectionRange(0, textarea.value.length);
+    const ok = document.execCommand("copy");
+    textarea.remove();
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
 export function getTextFromMessage(message: ChatMessage | UIMessage): string {
   return message.parts
     .filter((part) => part.type === "text")

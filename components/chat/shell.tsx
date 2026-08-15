@@ -192,17 +192,26 @@ export function ChatShell() {
         />
 
         {isNewChat ? (
-          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-6 px-4">
-            <Greeting />
-            <StarterCards
-              onPick={(prompt) =>
-                sendMessage({
-                  parts: [{ text: prompt, type: "text" }],
-                  role: "user",
-                })
-              }
-            />
-            <div className="w-full max-w-4xl">{composer}</div>
+          <div className="absolute inset-0 z-10 flex flex-col gap-6 px-2 md:items-center md:justify-center md:px-4">
+            {/* Greeting + starter cards take the space above the composer;
+                centered on desktop, pushed up on mobile. */}
+            <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-6 px-2 md:flex-none md:px-0">
+              <Greeting />
+              <StarterCards
+                onPick={(prompt) =>
+                  sendMessage({
+                    parts: [{ text: prompt, type: "text" }],
+                    role: "user",
+                  })
+                }
+              />
+            </div>
+            {/* Mobile: the composer docks at the bottom (above the keyboard);
+                desktop keeps it in the centered group. Padding matches the
+                non-empty composer so sending the first message doesn't jump. */}
+            <div className="w-full max-w-4xl pb-[calc(0.75rem+env(safe-area-inset-bottom))] md:pb-0">
+              {composer}
+            </div>
           </div>
         ) : (
           <div className="sticky bottom-0 z-1 mx-auto flex w-full max-w-4xl gap-2 border-t-0 bg-background px-2 pb-[calc(0.75rem+env(safe-area-inset-bottom))] md:px-4 md:pb-4">

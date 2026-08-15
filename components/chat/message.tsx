@@ -11,6 +11,7 @@ import {
   RotateCcwIcon,
 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -25,7 +26,7 @@ import {
 } from "@/components/ui/popover";
 import { extractPrefabPayload } from "@/lib/prefab";
 import type { ChatMessage } from "@/lib/types";
-import { cn, getTextFromMessage, sanitizeText } from "@/lib/utils";
+import { cn, copyText, getTextFromMessage, sanitizeText } from "@/lib/utils";
 import {
   Attachment,
   AttachmentInfo,
@@ -326,8 +327,13 @@ function PreviewMessage({
     return null;
   });
 
-  const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText(getTextFromMessage(message));
+  const handleCopy = useCallback(async () => {
+    const ok = await copyText(getTextFromMessage(message));
+    if (ok) {
+      toast.success("Copied to clipboard");
+    } else {
+      toast.error("Couldn't copy — clipboard unavailable");
+    }
   }, [message]);
 
   const content = isThinking ? (
