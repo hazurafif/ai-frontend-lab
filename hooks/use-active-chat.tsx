@@ -22,14 +22,10 @@ import { useAuth } from "@/hooks/use-auth";
 import { authHeaders } from "@/lib/auth";
 import { useThreads } from "@/lib/chat/chat-store";
 import { ChatStreamMerger, chunkString } from "@/lib/chat/chunk-merge";
+import { loadHistory, saveHistory } from "@/lib/chat/history";
 import { AttachMerger, isAttachTerminalEvent } from "@/lib/chat/message-merge";
 import { readSSE } from "@/lib/chat/sse";
-import {
-  CHAT_STORAGE_PREFIX,
-  HISTORY_CHANGED_EVENT,
-  HISTORY_STORAGE_KEY,
-  LAST_ACTIVE_CHAT_KEY,
-} from "@/lib/constants";
+import { HISTORY_CHANGED_EVENT } from "@/lib/constants";
 import { ChatbotError } from "@/lib/errors";
 import { DEFAULT_CHAT_MODEL } from "@/lib/models";
 import {
@@ -38,13 +34,18 @@ import {
   type ThinkingEffort,
 } from "@/lib/settings";
 import {
+  lastActiveStorageKey,
+  messagesStorageKey,
+  storageScope,
+} from "@/lib/storage";
+import {
   cancelThread,
   deleteThread,
   fetchThreadMessages,
   fetchThreads,
   serverMessagesToChatMessages,
 } from "@/lib/threads";
-import type { ChatHistoryItem, ChatMessage } from "@/lib/types";
+import type { ChatMessage } from "@/lib/types";
 import {
   fetchWithErrorHandlers,
   generateUUID,
@@ -91,47 +92,30 @@ type ActiveChatContextValue = {
 const ActiveChatContext = createContext<ActiveChatContextValue | null>(null);
 
 // --- localStorage persistence -------------------------------------------------
+//
+// Every cache key is namespaced per user (lib/storage.ts): the sidebar must
+// never render another account's (or the shared guest's) cached threads.
 
-function loadMessages(chatId: string): ChatMessage[] {
+function loadMessages(scope: string, chatId: string): ChatMessage[] {
   if (typeof window === "undefined") {
     return [];
   }
   try {
-    const raw = window.localStorage.getItem(`${CHAT_STORAGE_PREFIX}${chatId}`);
+    const raw = window.localStorage.getItem(messagesStorageKey(scope, chatId));
     return raw ? (JSON.parse(raw) as ChatMessage[]) : [];
   } catch {
     return [];
   }
 }
 
-function saveMessages(chatId: string, messages: ChatMessage[]) {
+function saveMessages(scope: string, chatId: string, messages: ChatMessage[]) {
   try {
     window.localStorage.setItem(
-      `${CHAT_STORAGE_PREFIX}${chatId}`,
+      messagesStorageKey(scope, chatId),
       JSON.stringify(messages),
     );
   } catch {
     // storage unavailable — ignore
-  }
-}
-
-function loadHistory(): ChatHistoryItem[] {
-  if (typeof window === "undefined") {
-    return [];
-  }
-  try {
-    const raw = window.localStorage.getItem(HISTORY_STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as ChatHistoryItem[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveHistory(history: ChatHistoryItem[]) {
-  try {
-    window.localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(history));
-  } catch {
-    // ignore
   }
 }
 
@@ -162,24 +146,24 @@ function titleFromMessages(messages: ChatMessage[]): string {
  * chat: the row appears the moment you hit send, marked running). No-op
  * when the row already exists.
  */
-function ensureHistoryRow(chatId: string, title: string) {
-  const history = loadHistory();
+function ensureHistoryRow(scope: string, chatId: string, title: string) {
+  const history = loadHistory(scope);
   if (history.some((chat) => chat.id === chatId)) {
     return;
   }
-  saveHistory([
+  saveHistory(scope, [
     { id: chatId, title, createdAt: new Date().toISOString() },
     ...history,
   ]);
   notifyHistoryChanged();
 }
 
-function upsertHistory(chatId: string, messages: ChatMessage[]) {
+function upsertHistory(scope: string, chatId: string, messages: ChatMessage[]) {
   if (messages.length === 0) {
     return;
   }
 
-  const history = loadHistory();
+  const history = loadHistory(scope);
   const existing = history.find((chat) => chat.id === chatId);
   const title = titleFromMessages(messages);
 
@@ -191,7 +175,7 @@ function upsertHistory(chatId: string, messages: ChatMessage[]) {
       )
     : [{ id: chatId, title, createdAt: new Date().toISOString() }, ...history];
 
-  saveHistory(next);
+  saveHistory(scope, next);
   notifyHistoryChanged();
 }
 
@@ -205,8 +189,13 @@ function extractChatId(pathname: string): string | null {
 export function ActiveChatProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   const { markThreadRunning, setActiveThreadId, statuses } = useThreads();
+
+  // localStorage scope: the signed-in username (fixed "guest" scope when
+  // anonymous). All chat caches are keyed by it, so a second account on
+  // the same browser never sees the first account's threads.
+  const scope = storageScope(user?.username);
 
   const chatIdFromUrl = extractChatId(pathname);
   const isNewChat = !chatIdFromUrl;
@@ -250,7 +239,7 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
     useChat<ChatMessage>({
       generateId: generateUUID,
       id: chatId,
-      messages: loadMessages(chatId),
+      messages: loadMessages(scope, chatId),
       onError: (error) => {
         if (error instanceof ChatbotError) {
           toast({ description: error.message, type: "error" });
@@ -332,12 +321,27 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
               ? draft.content
               : "") || input;
         markThreadRunning(chatId);
-        ensureHistoryRow(chatId, truncateTitle(sentText));
+        ensureHistoryRow(scope, chatId, truncateTitle(sentText));
       }
       return sendMessage(args, options);
     },
-    [chatId, input, isAuthenticated, markThreadRunning, sendMessage],
+    [chatId, input, isAuthenticated, markThreadRunning, scope, sendMessage],
   );
+
+  // Account switch / sign-in: drop the previous account's in-memory
+  // conversation and reload the caches for the new scope (the sidebar and
+  // the message cache are keyed per user; server threads are per-user too,
+  // so nothing from the old account may linger in the UI).
+  const prevScopeRef = useRef(scope);
+  useEffect(() => {
+    const prevScope = prevScopeRef.current;
+    prevScopeRef.current = scope;
+    if (prevScope === scope) {
+      return;
+    }
+    setMessages(loadMessages(scope, chatId));
+    setInput("");
+  }, [chatId, scope, setInput, setMessages]);
 
   // Load persisted messages when the active chat changes; detach a still-
   // streaming fetch when navigating away (durable chat: the run keeps going
@@ -356,7 +360,7 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
       ) {
         stopRef.current();
       }
-      setMessages(loadMessages(chatId));
+      setMessages(loadMessages(scope, chatId));
       setInput("");
     }
     if (!chatIdFromUrl || !isAuthenticated || threadStatus === "running") {
@@ -378,7 +382,14 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [chatId, chatIdFromUrl, isAuthenticated, setMessages, threadStatus]);
+  }, [
+    chatId,
+    chatIdFromUrl,
+    isAuthenticated,
+    scope,
+    setMessages,
+    threadStatus,
+  ]);
 
   // Durable chat (flow D): opening a thread whose run is in flight (started
   // elsewhere — another tab, or "new chat" while answering) attaches a live
@@ -484,12 +495,12 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (chatIdFromUrl) {
       try {
-        window.localStorage.setItem(LAST_ACTIVE_CHAT_KEY, chatIdFromUrl);
+        window.localStorage.setItem(lastActiveStorageKey(scope), chatIdFromUrl);
       } catch {
         // ignore
       }
     }
-  }, [chatIdFromUrl]);
+  }, [chatIdFromUrl, scope]);
 
   // Persist messages after streaming finishes (and on any non-streaming change).
   const prevStatusRef = useRef(status);
@@ -501,22 +512,22 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    saveMessages(chatId, messages);
+    saveMessages(scope, chatId, messages);
 
     if (statusChanged && (status === "ready" || status === "error")) {
-      upsertHistory(chatId, messages);
+      upsertHistory(scope, chatId, messages);
     }
-  }, [chatId, messages, status]);
+  }, [chatId, messages, scope, status]);
 
   const deleteChat = useCallback(
     (chatIdToDelete: string) => {
-      const history = loadHistory().filter(
+      const history = loadHistory(scope).filter(
         (chat) => chat.id !== chatIdToDelete,
       );
-      saveHistory(history);
+      saveHistory(scope, history);
       try {
         window.localStorage.removeItem(
-          `${CHAT_STORAGE_PREFIX}${chatIdToDelete}`,
+          messagesStorageKey(scope, chatIdToDelete),
         );
       } catch {
         // ignore
@@ -529,18 +540,18 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
         });
       }
     },
-    [isAuthenticated],
+    [isAuthenticated, scope],
   );
 
   const deleteAllChats = useCallback(() => {
-    for (const chat of loadHistory()) {
+    for (const chat of loadHistory(scope)) {
       try {
-        window.localStorage.removeItem(`${CHAT_STORAGE_PREFIX}${chat.id}`);
+        window.localStorage.removeItem(messagesStorageKey(scope, chat.id));
       } catch {
         // ignore
       }
     }
-    saveHistory([]);
+    saveHistory(scope, []);
     notifyHistoryChanged();
     if (isAuthenticated) {
       // Delete every server thread; notify again once the dust settles so
@@ -554,7 +565,7 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
         })
         .finally(() => notifyHistoryChanged());
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, scope]);
 
   // "New chat" from the sidebar: navigate to "/" from a chat route (the
   // pathname change regenerates the new-chat id above); while already on
@@ -745,15 +756,15 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
           // Persist the merged conversation (the useChat status-change
           // effect never fires for this manual stream).
           const current = messagesRef.current;
-          saveMessages(chatId, current);
-          upsertHistory(chatId, current);
+          saveMessages(scope, chatId, current);
+          upsertHistory(scope, chatId, current);
         }
         if (streamError) {
           toast({ description: streamError, type: "error" });
         }
       }
     },
-    [chatId, setMessages],
+    [chatId, scope, setMessages],
   );
 
   const value = useMemo<ActiveChatContextValue>(

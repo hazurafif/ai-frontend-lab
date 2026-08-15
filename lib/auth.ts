@@ -108,7 +108,7 @@ export function authHeaders(init?: HeadersInit): Headers {
   return headers;
 }
 
-function isAuthEndpoint(input: RequestInfo | URL): boolean {
+export function isAuthEndpoint(input: RequestInfo | URL): boolean {
   const url =
     typeof input === "string"
       ? input

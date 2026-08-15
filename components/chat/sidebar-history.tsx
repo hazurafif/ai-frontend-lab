@@ -34,7 +34,14 @@ import {
 } from "@/components/ui/sidebar";
 import { useAuth } from "@/hooks/use-auth";
 import { useThreads } from "@/lib/chat/chat-store";
-import { HISTORY_CHANGED_EVENT, HISTORY_STORAGE_KEY } from "@/lib/constants";
+import {
+  loadHistory,
+  saveHistory,
+  scrubLocalCacheOnce,
+  serverThreadToHistoryItem,
+} from "@/lib/chat/history";
+import { HISTORY_CHANGED_EVENT } from "@/lib/constants";
+import { storageScope } from "@/lib/storage";
 import {
   deleteThread,
   fetchThreads,
@@ -52,27 +59,13 @@ type GroupedChats = {
   older: ChatHistoryItem[];
 };
 
-function loadHistory(): ChatHistoryItem[] {
-  try {
-    const raw = window.localStorage.getItem(HISTORY_STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as ChatHistoryItem[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveHistory(history: ChatHistoryItem[]) {
-  try {
-    window.localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(history));
-  } catch {
-    // ignore
-  }
-}
-
 /**
  * Merge server threads into the local (localStorage) history. The server is
  * the source of truth for threads it knows; local-only entries (guest chats,
- * offline) are kept so nothing disappears.
+ * offline) are kept so nothing disappears. The one-time scrub in
+ * refreshServer (scrubLocalCacheOnce) replaces the whole list with the
+ * server rows on the first successful fetch per scope, which is what heals
+ * caches from the shared pre-scoping era.
  */
 function mergeHistory(
   local: ChatHistoryItem[],
@@ -80,12 +73,7 @@ function mergeHistory(
 ): ChatHistoryItem[] {
   const byId = new Map(local.map((chat) => [chat.id, chat]));
   for (const thread of threads) {
-    byId.set(thread.thread_id, {
-      id: thread.thread_id,
-      title: thread.title || "New chat",
-      createdAt: thread.created_at,
-      shareToken: thread.share_token ?? null,
-    });
+    byId.set(thread.thread_id, serverThreadToHistoryItem(thread));
   }
   return [...byId.values()];
 }
@@ -132,8 +120,12 @@ export function SidebarHistory({
   const { setOpenMobile } = useSidebar();
   const pathname = usePathname();
   const router = useRouter();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   const { seedThreads, statuses } = useThreads();
+  // localStorage scope for the sidebar cache (per signed-in user; "guest"
+  // while anonymous) — switching accounts must never show the previous
+  // account's cached threads.
+  const scope = storageScope(user?.username);
   const id = pathname?.startsWith("/chat/") ? pathname.split("/")[2] : null;
 
   const [history, setHistory] = useState<ChatHistoryItem[]>([]);
@@ -161,23 +153,30 @@ export function SidebarHistory({
         // Keep the durable-chat store in sync (run statuses restore on
         // reload, multi-tab resync, notification-driven refreshes).
         seedThreads(threads);
+        // One-time per-scope scrub: the first successful fetch treats the
+        // server list as authoritative, dropping local-only rows and message
+        // caches from the shared-cache era (other accounts' / guest threads).
+        const scrubbed = scrubLocalCacheOnce(scope, threads);
         setHistory((current) => {
+          if (scrubbed) {
+            return threads.map(serverThreadToHistoryItem);
+          }
           const merged = mergeHistory(current, threads);
-          saveHistory(merged);
+          saveHistory(scope, merged);
           return merged;
         });
       })
       .catch(() => {
         // offline / backend error — keep the local cache
       });
-  }, [isAuthenticated, seedThreads]);
+  }, [isAuthenticated, scope, seedThreads]);
 
   useEffect(() => {
     if (!mounted) {
       return;
     }
     const refresh = () => {
-      setHistory(loadHistory());
+      setHistory(loadHistory(scope));
       refreshServer();
     };
 
@@ -189,7 +188,7 @@ export function SidebarHistory({
       window.removeEventListener(HISTORY_CHANGED_EVENT, refresh);
       window.removeEventListener("storage", refresh);
     };
-  }, [mounted, refreshServer]);
+  }, [mounted, refreshServer, scope]);
 
   const handleDelete = useCallback(() => {
     const chatToDelete = deleteId;
@@ -202,7 +201,10 @@ export function SidebarHistory({
     }
 
     setHistory((current) => current.filter((chat) => chat.id !== chatToDelete));
-    saveHistory(history.filter((chat) => chat.id !== chatToDelete));
+    saveHistory(
+      scope,
+      history.filter((chat) => chat.id !== chatToDelete),
+    );
 
     // Also delete the thread server-side (best-effort).
     if (isAuthenticated && chatToDelete) {
@@ -212,7 +214,7 @@ export function SidebarHistory({
     }
 
     toast.success("Chat deleted");
-  }, [deleteId, history, isAuthenticated, pathname, router]);
+  }, [deleteId, history, isAuthenticated, pathname, router, scope]);
 
   const handleShowDeleteDialog = useCallback((chatId: string) => {
     setDeleteId(chatId);
@@ -237,6 +239,7 @@ export function SidebarHistory({
         current.map((chat) => (chat.id === updated.id ? updated : chat)),
       );
       saveHistory(
+        scope,
         history.map((chat) => (chat.id === updated.id ? updated : chat)),
       );
       window.dispatchEvent(new Event(HISTORY_CHANGED_EVENT));
@@ -263,7 +266,7 @@ export function SidebarHistory({
     }
 
     setRenameTarget(null);
-  }, [history, isAuthenticated, renameDraft, renameTarget]);
+  }, [history, isAuthenticated, renameDraft, renameTarget, scope]);
 
   // Filter by title when the sidebar search is active; the date groups are
   // kept so matching chats still read as a timeline.

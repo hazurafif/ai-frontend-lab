@@ -1,7 +1,14 @@
 export const isProductionEnvironment = process.env.NODE_ENV === "production";
 export const isDevelopmentEnvironment = process.env.NODE_ENV === "development";
 
-// localStorage keys used for client-side chat persistence
+// localStorage keys used for client-side chat persistence. The history
+// list, the per-thread message cache and the last-active marker are
+// NAMESPACED PER USER (lib/storage.ts): these constants are the anonymous
+// "guest" namespace — and the legacy pre-scoping keys, which stay guest-
+// only forever (they contain a mix of every account's rows and are never
+// claimed into a signed-in scope; see lib/chat/history.ts scrubLocalCacheOnce).
+// Never read/write them directly from components; go through lib/chat/history.ts
+// and lib/storage.ts so account scoping applies.
 export const HISTORY_STORAGE_KEY = "chat-history";
 export const CHAT_STORAGE_PREFIX = "chat-messages:";
 
@@ -9,8 +16,9 @@ export const CHAT_STORAGE_PREFIX = "chat-messages:";
 export const AUTH_TOKEN_KEY = "app-auth-token";
 
 // localStorage key for the last conversation the user opened
-// (`/chat/<id>`). Navigation back from /settings restores this thread
-// instead of landing on a blank new chat (the / route always starts new).
+// (`/chat/<id>`), namespaced per user (lib/storage.ts). Navigation back
+// from /settings restores this thread instead of landing on a blank new
+// chat (the / route always starts new).
 export const LAST_ACTIVE_CHAT_KEY = "app-last-active-chat";
 
 // localStorage key for the refresh token (exchanged for a fresh access
