@@ -34,6 +34,11 @@ import {
   AttachmentPreview,
   Attachments,
 } from "../ai-elements/attachments";
+import {
+  citationStreamdownProps,
+  embedCitationMarkers,
+  extractSearchSources,
+} from "../ai-elements/citation-ref";
 import { InterruptCard } from "../ai-elements/interrupt-card";
 import {
   MessageAction,
@@ -112,7 +117,7 @@ function RunStatus({
 
 function ThinkingText() {
   return (
-    <div className="flex min-h-[calc(13px*1.65)] min-w-0 items-center text-[13px] leading-[1.65]">
+    <div className="flex max-md:min-h-[calc(15px*1.65)] min-h-[calc(13px*1.65)] min-w-0 items-center max-md:text-[15px] text-[13px] leading-[1.65]">
       <Shimmer
         as="span"
         className="font-medium whitespace-normal break-words"
@@ -169,7 +174,7 @@ function ReasoningBlock({
         />
       </CollapsibleTrigger>
       <CollapsibleContent>
-        <div className="border-t border-border/60 px-3 py-2.5 text-[13px] leading-[1.65] whitespace-pre-wrap text-muted-foreground/80">
+        <div className="border-t border-border/60 px-3 py-2.5 max-md:text-[15px] text-[13px] leading-[1.65] whitespace-pre-wrap text-muted-foreground/80">
           {text}
         </div>
       </CollapsibleContent>
@@ -237,6 +242,18 @@ function PreviewMessage({
     });
   }, [isUser, message.id, message.metadata?.createdAt]);
 
+  // Sources cited by the assistant's `[n]` markers, parsed from the
+  // `web_search` tool output parts of this message (backend numbers its
+  // results and the prompt asks for `[n]` citations).
+  const searchSources = useMemo(
+    () => (message.role === "assistant" ? extractSearchSources(message) : []),
+    [message.parts, message.role],
+  );
+  const citationProps = useMemo(
+    () => citationStreamdownProps(searchSources),
+    [searchSources],
+  );
+
   const hasAnyContent = message.parts?.some(
     (part) =>
       (part.type === "text" && part.text?.trim().length > 0) ||
@@ -297,14 +314,18 @@ function PreviewMessage({
     if (type === "text") {
       return (
         <MessageContent
-          className={cn("text-[13px] leading-[1.65]", {
+          className={cn("max-md:text-[15px] text-[13px] leading-[1.65]", {
             "w-fit max-w-[min(80%,56ch)] overflow-hidden break-words rounded-2xl rounded-br-lg border border-border/30 bg-gradient-to-br from-secondary to-muted px-3.5 py-2 shadow-[var(--shadow-card)]":
               message.role === "user",
           })}
           data-testid="message-content"
           key={key}
         >
-          <MessageResponse>{sanitizeText(part.text)}</MessageResponse>
+          <MessageResponse {...citationProps}>
+            {message.role === "assistant"
+              ? embedCitationMarkers(sanitizeText(part.text))
+              : sanitizeText(part.text)}
+          </MessageResponse>
         </MessageContent>
       );
     }
@@ -349,7 +370,7 @@ function PreviewMessage({
       }
       return (
         <a
-          className="text-[13px] text-foreground underline underline-offset-2"
+          className="max-md:text-[15px] text-[13px] text-foreground underline underline-offset-2"
           href={part.url}
           key={key}
         >
@@ -412,7 +433,8 @@ function PreviewMessage({
             so its elapsed timer survives; only the action buttons swap. */
         <div className="flex items-center gap-1 pt-1">
           {!isStreaming && (
-            <MessageActions className="max-md:opacity-100 md:opacity-0 md:transition-opacity md:group-hover/message:opacity-100 md:focus-within:opacity-100">
+            /* Always visible once the run is done (not hover-revealed). */
+            <MessageActions key="actions">
               <MessageAction label="Copy" onClick={handleCopy} tooltip="Copy">
                 <CopyIcon />
               </MessageAction>
@@ -442,7 +464,7 @@ function PreviewMessage({
               )}
             </MessageActions>
           )}
-          <RunStatus status={status} />
+          <RunStatus key="status" status={status} />
         </div>
       )}
     </>
@@ -465,7 +487,9 @@ function PreviewMessage({
         )}
       >
         {isAssistant && (
-          <div className="flex h-[calc(13px*1.65)] shrink-0 items-center">
+          /* Avatar takes horizontal space the answer needs on small screens
+              — hidden below md, kept on desktop. */
+          <div className="hidden h-[calc(13px*1.65)] shrink-0 items-center md:flex">
             <div className="flex size-7 items-center justify-center rounded-lg bg-muted/60 text-muted-foreground ring-1 ring-border/50">
               <SparklesIcon size={13} />
             </div>
@@ -557,14 +581,19 @@ export const ThinkingMessage = () => (
     data-role="assistant"
     data-testid="message-assistant-loading"
   >
+    {/* Same structure as PreviewMessage so the thinking state and the
+        streamed answer align: avatar hidden below md, content column
+        fills the row. */}
     <div className="flex items-start gap-3">
-      <div className="flex h-[calc(13px*1.65)] shrink-0 items-center">
+      <div className="hidden h-[calc(13px*1.65)] shrink-0 items-center md:flex">
         <div className="flex size-7 items-center justify-center rounded-lg bg-muted/60 text-muted-foreground ring-1 ring-border/50">
           <SparklesIcon size={13} />
         </div>
       </div>
 
-      <ThinkingText />
+      <div className="flex min-w-0 flex-1 flex-col gap-2">
+        <ThinkingText />
+      </div>
     </div>
   </div>
 );
