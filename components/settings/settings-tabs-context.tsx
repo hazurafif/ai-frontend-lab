@@ -6,6 +6,7 @@ import {
   DatabaseIcon,
   type LucideIcon,
   PuzzleIcon,
+  ShieldCheckIcon,
   SlidersHorizontalIcon,
   UserIcon,
   UsersIcon,
@@ -21,6 +22,7 @@ export type SettingsTabId =
   | "tools"
   | "knowledge-base"
   | "account"
+  | "permissions"
   | "users";
 
 export type SettingsTab = {
@@ -37,6 +39,7 @@ export const SETTINGS_TABS: SettingsTab[] = [
   { id: "tools", label: "Tools", icon: PuzzleIcon },
   { id: "knowledge-base", label: "Knowledge", icon: DatabaseIcon },
   { id: "account", label: "Account", icon: UserIcon },
+  { id: "permissions", label: "Permissions", icon: ShieldCheckIcon },
   { id: "users", label: "Users", icon: UsersIcon },
 ];
 
@@ -61,7 +64,7 @@ export const SETTINGS_TAB_CATEGORIES: SettingsTabCategory[] = [
   {
     id: "account",
     label: "Account",
-    tabIds: ["account", "users"],
+    tabIds: ["account", "permissions", "users"],
   },
 ];
 
@@ -74,7 +77,10 @@ export function settingsTabsForRole(role?: string): SettingsTab[] {
     ? SETTINGS_TABS
     : SETTINGS_TABS.filter(
         (tab) =>
-          tab.id !== "skills" && tab.id !== "users" && tab.id !== "connections",
+          tab.id !== "skills" &&
+          tab.id !== "users" &&
+          tab.id !== "permissions" &&
+          tab.id !== "connections",
       );
 }
 

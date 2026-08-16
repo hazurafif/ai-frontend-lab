@@ -19,13 +19,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -348,132 +342,129 @@ export function UsersTab() {
 
   return (
     <div className="flex flex-col gap-4">
-      <Card>
-        <CardHeader className="flex flex-row items-start justify-between gap-4">
-          <div className="flex flex-col gap-1">
-            <CardTitle className="text-sm">Users</CardTitle>
-            <CardDescription>
-              Manage accounts, roles and disabled state.
-            </CardDescription>
+      <div className="flex items-center justify-between">
+        <p className="text-[13px] text-muted-foreground">
+          Manage accounts, roles and disabled state.
+        </p>
+        <Button
+          onClick={() => setCreateOpen(true)}
+          size="sm"
+          type="button"
+          variant="secondary"
+        >
+          <PlusIcon data-icon="inline-start" />
+          New user
+        </Button>
+      </div>
+      <Card className="p-0">
+        {loading ? (
+          <div className="flex items-center justify-center px-6 py-8">
+            <Spinner className="size-4 text-muted-foreground" />
           </div>
-          <Button className="h-8" onClick={() => setCreateOpen(true)}>
-            <PlusIcon />
-            New user
-          </Button>
-        </CardHeader>
-        <CardContent>
-          {loading ? (
-            <div className="flex items-center justify-center py-8">
-              <Spinner className="size-4 text-muted-foreground" />
-            </div>
-          ) : loadError ? (
-            <Alert variant="destructive">
-              <TriangleAlertIcon data-icon="inline-start" />
-              <AlertTitle>Failed to load users</AlertTitle>
-              <AlertDescription>{loadError}</AlertDescription>
-            </Alert>
-          ) : (
-            <Table className="min-w-[520px]">
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Username</TableHead>
-                  <TableHead className="hidden md:table-cell">Email</TableHead>
-                  <TableHead>Role</TableHead>
-                  <TableHead className="w-24">Status</TableHead>
-                  <TableHead className="w-24 text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {users.map((user) => (
-                  <TableRow key={user.username}>
-                    <TableCell>
-                      <div className="flex flex-col">
-                        <span className="font-medium text-foreground">
-                          {user.username}
+        ) : loadError ? (
+          <Alert variant="destructive" className="m-6">
+            <TriangleAlertIcon data-icon="inline-start" />
+            <AlertTitle>Failed to load users</AlertTitle>
+            <AlertDescription>{loadError}</AlertDescription>
+          </Alert>
+        ) : (
+          <Table className="min-w-[520px]">
+            <TableHeader>
+              <TableRow>
+                <TableHead>Username</TableHead>
+                <TableHead className="hidden md:table-cell">Email</TableHead>
+                <TableHead>Role</TableHead>
+                <TableHead className="w-24">Status</TableHead>
+                <TableHead className="w-24 text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {users.map((user) => (
+                <TableRow key={user.username}>
+                  <TableCell>
+                    <div className="flex flex-col">
+                      <span className="font-medium text-foreground">
+                        {user.username}
+                      </span>
+                      {user.full_name && (
+                        <span className="text-[12px] text-muted-foreground">
+                          {user.full_name}
                         </span>
-                        {user.full_name && (
-                          <span className="text-[12px] text-muted-foreground">
-                            {user.full_name}
-                          </span>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell className="hidden text-[13px] text-muted-foreground md:table-cell">
-                      {user.email ?? "—"}
-                    </TableCell>
-                    <TableCell>
-                      <Select
-                        value={user.role ?? "user"}
-                        disabled={pending === user.username}
-                        onValueChange={(role) =>
-                          handleRoleChange(
-                            user.username,
-                            role as "user" | "admin",
-                          )
-                        }
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell className="hidden text-[13px] text-muted-foreground md:table-cell">
+                    {user.email ?? "—"}
+                  </TableCell>
+                  <TableCell>
+                    <Select
+                      value={user.role ?? "user"}
+                      disabled={pending === user.username}
+                      onValueChange={(role) =>
+                        handleRoleChange(
+                          user.username,
+                          role as "user" | "admin",
+                        )
+                      }
+                    >
+                      <SelectTrigger size="sm" className="h-7 w-24">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="user">user</SelectItem>
+                        <SelectItem value="admin">admin</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </TableCell>
+                  <TableCell>
+                    {user.username === currentUser?.username ? (
+                      <Badge variant="secondary">you</Badge>
+                    ) : (
+                      <Badge
+                        variant={user.disabled ? "destructive" : "outline"}
                       >
-                        <SelectTrigger size="sm" className="h-7 w-24">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="user">user</SelectItem>
-                          <SelectItem value="admin">admin</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </TableCell>
-                    <TableCell>
-                      {user.username === currentUser?.username ? (
-                        <Badge variant="secondary">you</Badge>
-                      ) : (
-                        <Badge
-                          variant={user.disabled ? "destructive" : "outline"}
+                        {user.disabled ? "disabled" : "active"}
+                      </Badge>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {user.username !== currentUser?.username && (
+                      <div className="flex items-center justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7 text-muted-foreground hover:text-destructive"
+                          onClick={() =>
+                            handleDisabledToggle(user.username, !user.disabled)
+                          }
+                          disabled={pending === user.username}
+                          aria-label={
+                            user.disabled
+                              ? `Enable ${user.username}`
+                              : `Disable ${user.username}`
+                          }
+                          title={user.disabled ? "Enable" : "Disable"}
                         >
-                          {user.disabled ? "disabled" : "active"}
-                        </Badge>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {user.username !== currentUser?.username && (
-                        <div className="flex items-center justify-end gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="size-7 text-muted-foreground hover:text-destructive"
-                            onClick={() =>
-                              handleDisabledToggle(
-                                user.username,
-                                !user.disabled,
-                              )
-                            }
-                            disabled={pending === user.username}
-                            aria-label={
-                              user.disabled
-                                ? `Enable ${user.username}`
-                                : `Disable ${user.username}`
-                            }
-                            title={user.disabled ? "Enable" : "Disable"}
-                          >
-                            <BanIcon />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="size-7 text-muted-foreground hover:text-destructive"
-                            onClick={() => setDeleteTarget(user)}
-                            disabled={pending === user.username}
-                            aria-label={`Delete ${user.username}`}
-                          >
-                            <TrashIcon />
-                          </Button>
-                        </div>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
+                          <BanIcon />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7 text-muted-foreground hover:text-destructive"
+                          onClick={() => setDeleteTarget(user)}
+                          disabled={pending === user.username}
+                          aria-label={`Delete ${user.username}`}
+                        >
+                          <TrashIcon />
+                        </Button>
+                      </div>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
       </Card>
 
       <CreateUserDialog

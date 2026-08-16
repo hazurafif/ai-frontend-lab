@@ -9,13 +9,7 @@ import { toast } from "sonner";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import {
   Field,
   FieldDescription,
@@ -38,12 +32,6 @@ function ProfileCard() {
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle className="text-sm">Account</CardTitle>
-        <CardDescription>
-          Your profile as registered on the backend.
-        </CardDescription>
-      </CardHeader>
       <CardContent>
         <dl className="flex flex-col gap-3">
           {rows.map((row) => (
@@ -115,13 +103,8 @@ function PasswordCard() {
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle className="text-sm">Change password</CardTitle>
-        <CardDescription>
-          Verify your current password, then set a new one.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
+      <CardContent className="flex flex-col gap-4">
+        <span className="text-sm font-medium">Change password</span>
         {invalid ? (
           <Alert variant="destructive" className="mb-4">
             <TriangleAlertIcon data-icon="inline-start" />
@@ -192,6 +175,9 @@ function PasswordCard() {
 export function AccountTab() {
   return (
     <div className="flex flex-col gap-4">
+      <p className="text-[13px] text-muted-foreground">
+        Your profile as registered on the backend.
+      </p>
       <ProfileCard />
       <PasswordCard />
     </div>
