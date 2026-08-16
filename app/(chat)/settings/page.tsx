@@ -1,8 +1,6 @@
 "use client";
 
 import {
-  CircleCheckIcon,
-  ListChecksIcon,
   PencilIcon,
   PlusIcon,
   RefreshCcwIcon,
@@ -35,7 +33,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -75,7 +72,6 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import type { ChatModel } from "@/lib/models";
 import { fetchPreferences, updatePreferences } from "@/lib/preferences";
 import {
-  type AllowedModels,
   createSkill as apiCreateSkill,
   createToolServer as apiCreateToolServer,
   deleteSkill as apiDeleteSkill,
@@ -88,14 +84,11 @@ import {
   backendToolToToolConfig,
   CONNECTION_NAME_RE,
   type ConnectionInput,
-  clearAllowedModels,
   createConnection,
   DEFAULT_SETTINGS,
   deleteConnection,
-  fetchAllowedModels,
   fetchAppSettings,
   fetchBackendHealth,
-  fetchConnectionModels,
   fetchConnections,
   fetchKnowledgeBasesWithDocuments,
   fetchSkills,
@@ -111,7 +104,6 @@ import {
   type SkillFile,
   saveSettings,
   type ToolConfig,
-  updateAllowedModels,
   updateAppSettings,
   updateConnection,
 } from "@/lib/settings";
@@ -1214,94 +1206,10 @@ function ConnectionsTab() {
   const [editing, setEditing] = useState<BackendConnection | null>(null);
   const [draft, setDraft] = useState<ConnectionInput | null>(null);
   const [savingConnection, setSavingConnection] = useState(false);
-  // Test-connection state inside the editor dialog (POST /api/models with
-  // the draft's base URL + token).
-  const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<{
-    ok: boolean;
-    message: string;
-  } | null>(null);
   // Delete confirmation target (row trash / editor delete).
   const [deleteTarget, setDeleteTarget] = useState<BackendConnection | null>(
     null,
   );
-  // Test a draft connection (editor dialog): /api/models fetches the
-  // draft source's /v1/models list using the draft's own token. Editing a
-  // saved connection, the stored token is write-only (never prefilled) —
-  // test through the backend instead, which uses the stored token.
-  const testDraftConnection = async () => {
-    if (!draft) {
-      return;
-    }
-    if (
-      !draft.apiToken?.trim() &&
-      editing?.hasToken &&
-      draft.baseUrl?.trim() === (editing.baseUrl ?? "").trim()
-    ) {
-      setTesting(true);
-      setTestResult(null);
-      try {
-        const sources = await fetchConnectionModels();
-        const source = sources.find(
-          (candidate) => candidate.connection === editing.name,
-        );
-        if (!source) {
-          throw new Error("Connection not found");
-        }
-        setTestResult(
-          source.error
-            ? { ok: false, message: source.error }
-            : { ok: true, message: `${source.models.length} models available` },
-        );
-      } catch (error) {
-        setTestResult({
-          ok: false,
-          message:
-            error instanceof Error ? error.message : "Test failed — try again.",
-        });
-      } finally {
-        setTesting(false);
-      }
-      return;
-    }
-    if (!draft.apiToken?.trim()) {
-      toast.error("Enter an API token to test the connection.");
-      return;
-    }
-    setTesting(true);
-    setTestResult(null);
-    try {
-      const res = await fetch("/api/models", {
-        body: JSON.stringify({
-          baseUrl: draft.baseUrl ?? "",
-          apiKey: draft.apiToken,
-          provider: "custom",
-        }),
-        headers: { "Content-Type": "application/json" },
-        method: "POST",
-      });
-      const body = (await res.json()) as {
-        message?: string;
-        models?: unknown[];
-      };
-      if (res.ok && body.models?.length) {
-        setTestResult({
-          ok: true,
-          message: `${body.models.length} models available`,
-        });
-      } else {
-        setTestResult({
-          ok: false,
-          message: body.message ?? `Request failed (${res.status})`,
-        });
-      }
-    } catch {
-      setTestResult({ ok: false, message: "Network error." });
-    } finally {
-      setTesting(false);
-    }
-  };
-
   useEffect(() => {
     let cancelled = false;
     fetchConnections()
@@ -1328,7 +1236,6 @@ function ConnectionsTab() {
 
   const openConnectionEditor = (connection: BackendConnection | null) => {
     setEditing(connection);
-    setTestResult(null);
     setDraft(
       connection
         ? {
@@ -1414,30 +1321,6 @@ function ConnectionsTab() {
     // The editor may be open behind the confirm — close it too.
     setEditing(null);
     setDraft(null);
-    setTestResult(null);
-  };
-
-  const makeDefault = async (connection: BackendConnection) => {
-    try {
-      await updateConnection(connection.name, {
-        baseUrl: connection.baseUrl ?? undefined,
-        // Full replace — carry provider options and keep the stored token
-        // (apiToken omitted on purpose).
-        extra: connection.extra,
-        isDefault: true,
-        kind: connection.kind,
-        name: connection.name,
-      });
-    } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : `Failed to set ${connection.name} as default`,
-      );
-      return;
-    }
-    await refreshConnections();
-    toast.success(`${connection.name} is now the default connection`);
   };
 
   const toggleConnectionEnabled = async (
@@ -1509,7 +1392,6 @@ function ConnectionsTab() {
                 <TableHead>Name</TableHead>
                 <TableHead>Base URL</TableHead>
                 <TableHead>Token</TableHead>
-                <TableHead className="w-24">Default</TableHead>
                 <TableHead className="w-44 text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -1528,20 +1410,6 @@ function ConnectionsTab() {
                     {connection.hasToken
                       ? (connection.apiToken ?? "••••")
                       : "—"}
-                  </TableCell>
-                  <TableCell>
-                    {connection.isDefault ? (
-                      <Badge>default</Badge>
-                    ) : (
-                      <Button
-                        onClick={() => makeDefault(connection)}
-                        size="sm"
-                        type="button"
-                        variant="ghost"
-                      >
-                        Set default
-                      </Button>
-                    )}
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-2">
@@ -1575,7 +1443,6 @@ function ConnectionsTab() {
           if (!open) {
             setEditing(null);
             setDraft(null);
-            setTestResult(null);
           }
         }}
       >
@@ -1637,64 +1504,22 @@ function ConnectionsTab() {
                 value={draft?.apiToken ?? ""}
               />
             </Field>
-            <Field>
-              <div className="flex items-center justify-between gap-4">
-                <span className="text-sm font-medium">Default</span>
-                <Switch
-                  checked={Boolean(draft?.isDefault)}
-                  onCheckedChange={(checked) =>
-                    setDraft((current) =>
-                      current ? { ...current, isDefault: checked } : current,
-                    )
-                  }
-                  aria-label="Default connection"
-                />
-              </div>
-            </Field>
           </FieldGroup>
           <DialogFooter>
             {editing && (
               <Button
+                className="mr-auto"
                 onClick={() => setDeleteTarget(editing)}
                 type="button"
                 variant="destructive"
               >
-                <TrashIcon data-icon="inline-start" />
                 Delete
               </Button>
             )}
-            <div className="mr-auto flex items-center gap-3">
-              <Button
-                disabled={testing}
-                onClick={testDraftConnection}
-                type="button"
-                variant="outline"
-              >
-                {testing ? "Testing…" : "Test connection"}
-              </Button>
-              {testResult && (
-                <span
-                  className={cn(
-                    "flex items-center gap-1.5 text-[13px]",
-                    testResult.ok
-                      ? "text-muted-foreground"
-                      : "text-destructive",
-                  )}
-                >
-                  {testResult.ok ? (
-                    <CircleCheckIcon className="size-4 shrink-0" />
-                  ) : (
-                    <TriangleAlertIcon className="size-4 shrink-0" />
-                  )}
-                  {testResult.message}
-                </span>
-              )}
-            </div>
             <Button
               onClick={() => {
                 setEditing(null);
                 setDraft(null);
-                setTestResult(null);
               }}
               type="button"
               variant="outline"
@@ -1709,7 +1534,7 @@ function ConnectionsTab() {
               {savingConnection
                 ? "Saving…"
                 : editing
-                  ? "Save connection"
+                  ? "Save"
                   : "Create connection"}
             </Button>
           </DialogFooter>
@@ -1733,8 +1558,11 @@ function ConnectionsTab() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmDeleteConnection}>
-              Delete connection
+            <AlertDialogAction
+              onClick={confirmDeleteConnection}
+              variant="destructive"
+            >
+              Delete
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1745,13 +1573,7 @@ function ConnectionsTab() {
 
 // --- Model tab ----------------------------------------------------------------
 
-function ModelTab({
-  settings,
-  isAdmin,
-}: {
-  settings: SettingsState;
-  isAdmin: boolean;
-}) {
+function ModelTab({ settings }: { settings: SettingsState }) {
   // The active model id (settings.model, seeded from the backend's default
   // llm connection) — there is no local picker anymore; model selection
   // lives in the chat input and the default connection's extra.model.
@@ -1765,17 +1587,10 @@ function ModelTab({
   const [enabledModels, setEnabledModels] = useState<string[] | null>(null);
   const [prefsLoaded, setPrefsLoaded] = useState(false);
   // Live model catalog: the backend aggregates every saved llm connection's
-  // model list (GET /connections/models, per-source error reporting) and
-  // the caller's allowlist restriction filters the picker for user-role
-  // accounts. Models stay null while loading or on failure → callers fall
-  // back to the built-in list.
-  const { models: sourceModels, sources, allowed } = useModelCatalog();
-  // The admin-managed global allowlist (which models user-role accounts may
-  // use); null = not loaded (non-admin, backend offline, still fetching).
-  const [allowlist, setAllowlist] = useState<AllowedModels | null>(null);
-  // Allowlist editor: checked model ids (null = dialog closed).
-  const [allowlistDraft, setAllowlistDraft] = useState<string[] | null>(null);
-  const [savingAllowlist, setSavingAllowlist] = useState(false);
+  // model list (GET /connections/models); the caller's allowlist restriction
+  // filters the picker for user-role accounts. Models stay null while
+  // loading or on failure → callers fall back to the built-in list.
+  const { models: sourceModels, allowed } = useModelCatalog();
   // The live id may come from the backend (GET /health) and not exist in
   // the list — never silently fall back to a wrong preset entry.
   // When the current id isn't in the list, surface it at the top as-is so
@@ -1833,196 +1648,8 @@ function ModelTab({
     }
   };
 
-  // Options of the allowlist editor: every discovered model id (from all
-  // saved connections) plus the currently-allowed ids that are no longer in
-  // the catalog, so saving never silently drops them.
-  const allowlistOptions: Array<{ id: string; source: string }> =
-    useMemo(() => {
-      const options: Array<{ id: string; source: string }> = [];
-      const seen = new Set<string>();
-      for (const source of sources ?? []) {
-        const prefix = source.base_url?.includes(
-          "generativelanguage.googleapis.com",
-        )
-          ? "google_genai"
-          : "openai";
-        for (const model of source.models) {
-          const id = `${prefix}:${model.id}`;
-          if (seen.has(id)) {
-            continue;
-          }
-          seen.add(id);
-          options.push({ id, source: source.connection });
-        }
-      }
-      for (const id of allowlist?.models ?? []) {
-        if (!seen.has(id)) {
-          seen.add(id);
-          options.push({ id, source: "allowed — not in the current catalog" });
-        }
-      }
-      return options;
-    }, [allowlist, sources]);
-
-  // The global allowlist (admin-managed, role-based): fetch on mount and
-  // whenever settings change (connections added/removed alter the ids).
-  useEffect(() => {
-    if (!isAdmin) {
-      return;
-    }
-    let cancelled = false;
-    fetchAllowedModels()
-      .then((next) => {
-        if (!cancelled) {
-          setAllowlist(next);
-        }
-      })
-      .catch(() => {
-        // Backend offline — leave the list empty.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [isAdmin]);
-
-  const refreshAllowlist = async () => {
-    try {
-      setAllowlist(await fetchAllowedModels());
-    } catch {
-      // Backend offline — keep the cached list.
-    }
-  };
-
-  const openAllowlistEditor = () => {
-    setAllowlistDraft([...(allowlist?.models ?? [])]);
-  };
-
-  const saveAllowlist = async () => {
-    if (!allowlistDraft) {
-      return;
-    }
-    setSavingAllowlist(true);
-    try {
-      const next = await updateAllowedModels(allowlistDraft);
-      setAllowlist(next);
-      setAllowlistDraft(null);
-      toast.success(
-        next.models.length === 0
-          ? "Allowlist saved — user accounts can no longer pick models"
-          : `Allowlist saved — ${next.models.length} model(s) allowed for user accounts`,
-      );
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Failed to save the allowlist",
-      );
-    } finally {
-      setSavingAllowlist(false);
-    }
-  };
-
-  const removeAllowlist = async () => {
-    try {
-      await clearAllowedModels();
-      await refreshAllowlist();
-      toast.success("Restriction removed — every model is allowed again");
-    } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "Failed to remove the restriction",
-      );
-    }
-  };
-
   return (
     <div className="flex flex-col gap-4">
-      {isAdmin && (
-        <Card className="flex flex-col gap-4">
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex flex-col gap-0.5">
-              <span className="text-sm font-medium">Allowed models</span>
-              <span className="text-[13px] text-muted-foreground">
-                Which models user-role accounts may use. Admins are never
-                restricted.
-              </span>
-            </div>
-            {allowlist?.restricted ? (
-              <Badge>{allowlist.models.length} allowed</Badge>
-            ) : (
-              <Badge variant="outline">Unrestricted</Badge>
-            )}
-          </div>
-          {allowlist === null ? (
-            <p className="text-[13px] text-muted-foreground">
-              Loading allowlist…
-            </p>
-          ) : allowlist.restricted ? (
-            <>
-              <div className="flex flex-wrap gap-1.5">
-                {allowlist.models.length === 0 ? (
-                  <span className="text-[13px] text-destructive">
-                    Allow at least one model so users can chat.
-                  </span>
-                ) : (
-                  allowlist.models.map((id) => (
-                    <Badge className="font-mono" key={id} variant="secondary">
-                      {id}
-                    </Badge>
-                  ))
-                )}
-              </div>
-              <div className="flex items-center gap-3">
-                <Button
-                  onClick={openAllowlistEditor}
-                  size="sm"
-                  type="button"
-                  variant="outline"
-                >
-                  Edit allowlist
-                </Button>
-                <Button
-                  onClick={removeAllowlist}
-                  size="sm"
-                  type="button"
-                  variant="ghost"
-                >
-                  Remove restriction
-                </Button>
-              </div>
-            </>
-          ) : (
-            <div className="flex items-center gap-3">
-              <Button
-                onClick={openAllowlistEditor}
-                size="sm"
-                type="button"
-                variant="secondary"
-              >
-                <ListChecksIcon data-icon="inline-start" />
-                Restrict models…
-              </Button>
-            </div>
-          )}
-          {sources?.some((source) => source.error) && (
-            <div className="flex flex-col gap-1">
-              {sources
-                .filter((source) => source.error)
-                .map((source) => (
-                  <span
-                    className="flex items-center gap-1.5 text-[12px] text-muted-foreground"
-                    key={source.connection}
-                  >
-                    <TriangleAlertIcon className="size-3.5 shrink-0" />
-                    <span className="truncate font-mono">
-                      {source.connection}
-                    </span>
-                    : {source.error}
-                  </span>
-                ))}
-            </div>
-          )}
-        </Card>
-      )}
       <Card className="flex flex-col gap-3">
         {allowed?.restricted && (
           <p className="flex items-center gap-1.5 text-[13px] text-muted-foreground">
@@ -2085,78 +1712,6 @@ function ModelTab({
             </p>
           )}
       </Card>
-
-      <Dialog
-        open={allowlistDraft !== null}
-        onOpenChange={(open) => {
-          if (!open) {
-            setAllowlistDraft(null);
-          }
-        }}
-      >
-        <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Allowed models</DialogTitle>
-          </DialogHeader>
-          <p className="text-[13px] text-muted-foreground">
-            Models user-role accounts may use (empty selection = allow none).
-          </p>
-          {allowlistOptions.length === 0 ? (
-            <p className="text-[13px] text-muted-foreground">
-              No llm connections with models yet.
-            </p>
-          ) : (
-            <div className="flex max-h-72 flex-col gap-0.5 overflow-y-auto rounded-md border p-2">
-              {allowlistOptions.map((option) => (
-                <div
-                  className="flex items-center gap-2.5 rounded px-2 py-1.5 hover:bg-muted"
-                  key={option.id}
-                >
-                  <Checkbox
-                    aria-label={`Allow ${option.id}`}
-                    checked={allowlistDraft?.includes(option.id) ?? false}
-                    onCheckedChange={(checked) =>
-                      setAllowlistDraft((current) => {
-                        const next = new Set(current ?? []);
-                        if (checked) {
-                          next.add(option.id);
-                        } else {
-                          next.delete(option.id);
-                        }
-                        return [...next];
-                      })
-                    }
-                  />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate font-mono text-[13px]">
-                      {option.id}
-                    </span>
-                    <span className="block truncate text-[12px] text-muted-foreground">
-                      via {option.source}
-                    </span>
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-          <DialogFooter>
-            <Button
-              onClick={() => setAllowlistDraft(null)}
-              type="button"
-              variant="outline"
-            >
-              Cancel
-            </Button>
-            <Button
-              disabled={savingAllowlist}
-              onClick={saveAllowlist}
-              type="button"
-            >
-              {savingAllowlist ? "Saving…" : "Save allowlist"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
@@ -2320,7 +1875,7 @@ export default function SettingsPage() {
               </TabsContent>
             )}
             <TabsContent value="model">
-              <ModelTab isAdmin={isAdmin} settings={settings} />
+              <ModelTab settings={settings} />
             </TabsContent>
             {user?.role === "admin" && (
               <TabsContent value="skills">
