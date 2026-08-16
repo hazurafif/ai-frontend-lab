@@ -2,19 +2,53 @@ import type { UIMessage } from "ai";
 import { type ClassValue, clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { authHeaders, isAuthEndpoint, refreshAccessToken } from "./auth";
-import { ChatbotError, type ErrorCode } from "./errors";
+import {
+  ChatbotError,
+  errorCodeFromStatus,
+  isErrorCode,
+  type ErrorCode,
+  type Surface,
+} from "./errors";
 import type { ChatMessage } from "./types";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+/**
+ * Parse a failed response body. The AI backend responds with FastAPI's
+ * `{"detail": ...}` shape while the frontend error contract is
+ * `{code, cause}` — accept both, and swallow bodies that aren't JSON
+ * (empty 401s, proxy error pages).
+ */
+async function parseErrorBody(
+  response: Response,
+): Promise<{ code?: unknown; cause?: unknown }> {
+  try {
+    const body = (await response.json()) as Record<string, unknown>;
+    return { code: body.code, cause: body.cause ?? body.detail };
+  } catch {
+    return {};
+  }
+}
+
+/** Raise a ChatbotError, deriving a code from the status when the body has none. */
+async function chatbotErrorFrom(
+  response: Response,
+  surface: Surface,
+): Promise<ChatbotError> {
+  const { code, cause } = await parseErrorBody(response);
+  const normalized: ErrorCode = isErrorCode(code)
+    ? code
+    : errorCodeFromStatus(response.status, surface);
+  return new ChatbotError(normalized, cause as string | undefined);
+}
+
 export const fetcher = async (url: string) => {
   const response = await fetch(url);
 
   if (!response.ok) {
-    const { code, cause } = await response.json();
-    throw new ChatbotError(code as ErrorCode, cause);
+    throw await chatbotErrorFrom(response, "api");
   }
 
   return response.json();
@@ -54,8 +88,7 @@ export async function fetchWithErrorHandlers(
   }
 
   if (!response.ok) {
-    const { code, cause } = await response.json();
-    throw new ChatbotError(code as ErrorCode, cause);
+    throw await chatbotErrorFrom(response, "chat");
   }
 
   return response;

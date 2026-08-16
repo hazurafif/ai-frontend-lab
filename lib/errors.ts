@@ -12,6 +12,56 @@ export type ErrorCode = `${ErrorType}:${Surface}`;
 
 export type ErrorVisibility = "response" | "log" | "none";
 
+/** The known error types, for runtime validation of error bodies. */
+const ERROR_TYPES: readonly ErrorType[] = [
+  "bad_request",
+  "unauthorized",
+  "forbidden",
+  "not_found",
+  "rate_limit",
+  "offline",
+];
+
+/** The known surfaces, for runtime validation of error bodies. */
+const SURFACES: readonly Surface[] = ["chat", "api", "history", "share"];
+
+/** True when `value` is a well-formed ErrorCode (`type:surface`). */
+export function isErrorCode(value: unknown): value is ErrorCode {
+  if (typeof value !== "string") {
+    return false;
+  }
+  const [type, surface] = value.split(":");
+  return (
+    (ERROR_TYPES as readonly string[]).includes(type) &&
+    (SURFACES as readonly string[]).includes(surface)
+  );
+}
+
+/**
+ * ErrorCode derived from an HTTP status, for responses whose body carries
+ * no `code`. The FastAPI backend answers with `{"detail": ...}`, not the
+ * frontend's `{code, cause}` shape — without this fallback every failed
+ * request would construct ChatbotError from `undefined` and crash on
+ * `.split`.
+ */
+export function errorCodeFromStatus(
+  status: number,
+  surface: Surface,
+): ErrorCode {
+  switch (status) {
+    case 401:
+      return `unauthorized:${surface}`;
+    case 403:
+      return `forbidden:${surface}`;
+    case 404:
+      return `not_found:${surface}`;
+    case 429:
+      return `rate_limit:${surface}`;
+    default:
+      return `bad_request:${surface}`;
+  }
+}
+
 export const visibilityBySurface: Record<Surface, ErrorVisibility> = {
   api: "response",
   chat: "response",
@@ -25,12 +75,18 @@ export class ChatbotError extends Error {
   statusCode: number;
 
   constructor(errorCode: ErrorCode, cause?: string | ErrorOptions) {
-    const message = getMessageByErrorCode(errorCode);
+    // Belt and braces: runtime error bodies can carry no `code` at all (the
+    // backend's `{"detail": ...}` HTTPException shape). Never crash the
+    // caller's error handling on `undefined.split(":")`.
+    const normalized: ErrorCode = isErrorCode(errorCode)
+      ? errorCode
+      : "bad_request:api";
+    const message = getMessageByErrorCode(normalized);
     const options = typeof cause === "string" ? undefined : cause;
 
     super(message, options);
 
-    const [type, surface] = errorCode.split(":");
+    const [type, surface] = normalized.split(":");
 
     this.type = type as ErrorType;
     if (typeof cause === "string") {
@@ -71,6 +127,12 @@ export function getMessageByErrorCode(errorCode: ErrorCode): string {
       return "You've reached the message limit. Try again later.";
     case "offline:chat":
       return "We're having trouble sending your message. Please check your internet connection and try again.";
+    case "unauthorized:chat":
+      return "Your session expired — please sign in again.";
+    case "forbidden:chat":
+      return "You don't have permission to do that.";
+    case "not_found:chat":
+      return "That conversation no longer exists.";
     case "bad_request:share":
       return "Couldn't share this chat. Please try again.";
     case "unauthorized:share":
