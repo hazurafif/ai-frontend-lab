@@ -37,17 +37,11 @@ import { useThreads } from "@/lib/chat/chat-store";
 import {
   loadHistory,
   saveHistory,
-  scrubLocalCacheOnce,
   serverThreadToHistoryItem,
 } from "@/lib/chat/history";
 import { HISTORY_CHANGED_EVENT } from "@/lib/constants";
 import { storageScope } from "@/lib/storage";
-import {
-  deleteThread,
-  fetchThreads,
-  renameThread,
-  type ServerThread,
-} from "@/lib/threads";
+import { deleteThread, fetchThreads, renameThread } from "@/lib/threads";
 import type { ChatHistoryItem } from "@/lib/types";
 import { ChatItem } from "./sidebar-history-item";
 
@@ -58,25 +52,6 @@ type GroupedChats = {
   lastMonth: ChatHistoryItem[];
   older: ChatHistoryItem[];
 };
-
-/**
- * Merge server threads into the local (localStorage) history. The server is
- * the source of truth for threads it knows; local-only entries (guest chats,
- * offline) are kept so nothing disappears. The one-time scrub in
- * refreshServer (scrubLocalCacheOnce) replaces the whole list with the
- * server rows on the first successful fetch per scope, which is what heals
- * caches from the shared pre-scoping era.
- */
-function mergeHistory(
-  local: ChatHistoryItem[],
-  threads: ServerThread[],
-): ChatHistoryItem[] {
-  const byId = new Map(local.map((chat) => [chat.id, chat]));
-  for (const thread of threads) {
-    byId.set(thread.thread_id, serverThreadToHistoryItem(thread));
-  }
-  return [...byId.values()];
-}
 
 const groupChatsByDate = (chats: ChatHistoryItem[]): GroupedChats => {
   const now = new Date();
@@ -153,31 +128,31 @@ export function SidebarHistory({
         // Keep the durable-chat store in sync (run statuses restore on
         // reload, multi-tab resync, notification-driven refreshes).
         seedThreads(threads);
-        // One-time per-scope scrub: the first successful fetch treats the
-        // server list as authoritative, dropping local-only rows and message
-        // caches from the shared-cache era (other accounts' / guest threads).
-        const scrubbed = scrubLocalCacheOnce(scope, threads);
-        setHistory((current) => {
-          if (scrubbed) {
-            return threads.map(serverThreadToHistoryItem);
-          }
-          const merged = mergeHistory(current, threads);
-          saveHistory(scope, merged);
-          return merged;
-        });
+        // Server-only when signed in: replace with the server list, never
+        // merge (no localStorage fallback — the DB is the only source).
+        setHistory(threads.map(serverThreadToHistoryItem));
       })
       .catch(() => {
-        // offline / backend error — keep the local cache
+        // Backend unreachable — keep the last server-fetched list (never
+        // fall back to the localStorage cache).
       });
-  }, [isAuthenticated, scope, seedThreads]);
+  }, [isAuthenticated, seedThreads]);
 
   useEffect(() => {
     if (!mounted) {
       return;
     }
+    // Signed-in: start empty — the server fetch fills the list (the local
+    // cache is never consulted). Guest: the localStorage fallback stays.
+    if (isAuthenticated) {
+      setHistory([]);
+    }
     const refresh = () => {
-      setHistory(loadHistory(scope));
-      refreshServer();
+      if (isAuthenticated) {
+        refreshServer();
+      } else {
+        setHistory(loadHistory(scope));
+      }
     };
 
     refresh();
@@ -188,7 +163,7 @@ export function SidebarHistory({
       window.removeEventListener(HISTORY_CHANGED_EVENT, refresh);
       window.removeEventListener("storage", refresh);
     };
-  }, [mounted, refreshServer, scope]);
+  }, [isAuthenticated, mounted, refreshServer, scope]);
 
   const handleDelete = useCallback(() => {
     const chatToDelete = deleteId;

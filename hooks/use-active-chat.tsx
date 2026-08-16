@@ -145,23 +145,6 @@ function titleFromMessages(messages: ChatMessage[]): string {
   return firstUserText ? truncateTitle(firstUserText) : "New chat";
 }
 
-/**
- * Add a sidebar row for a thread before the backend confirms it (durable
- * chat: the row appears the moment you hit send, marked running). No-op
- * when the row already exists.
- */
-function ensureHistoryRow(scope: string, chatId: string, title: string) {
-  const history = loadHistory(scope);
-  if (history.some((chat) => chat.id === chatId)) {
-    return;
-  }
-  saveHistory(scope, [
-    { id: chatId, title, createdAt: new Date().toISOString() },
-    ...history,
-  ]);
-  notifyHistoryChanged();
-}
-
 function upsertHistory(scope: string, chatId: string, messages: ChatMessage[]) {
   if (messages.length === 0) {
     return;
@@ -313,35 +296,21 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
   }, [chatId]);
 
   // Durable chat (flow A): the moment a send starts, mark the thread
-  // running in the sidebar and make sure it has a history row. The backend
-  // confirms both within milliseconds (thread metadata is upserted at run
-  // start, status "running"), and the notification stream keeps statuses
-  // live from there on.
+  // running in the sidebar. The history row itself is NOT created locally
+  // when signed in — the sidebar is server-only, and the backend upserts
+  // the thread metadata at run start (the run_started notification then
+  // refreshes the list). Guests keep the local row fallback.
   const sendMessageTracked = useCallback(
     (
       args: Parameters<UseChatHelpers<ChatMessage>["sendMessage"]>[0],
       options?: Parameters<UseChatHelpers<ChatMessage>["sendMessage"]>[1],
     ) => {
       if (isAuthenticated) {
-        // The SDK's message type is a messy union — extract the sent text
-        // through a minimal structural shape.
-        const draft = args as
-          | { parts?: { text?: unknown }[]; content?: unknown }
-          | undefined;
-        const sentText =
-          (draft && Array.isArray(draft.parts)
-            ? draft.parts
-                .map((part) => (typeof part.text === "string" ? part.text : ""))
-                .join(" ")
-            : typeof draft?.content === "string"
-              ? draft.content
-              : "") || input;
         markThreadRunning(chatId);
-        ensureHistoryRow(scope, chatId, truncateTitle(sentText));
       }
       return sendMessage(args, options);
     },
-    [chatId, input, isAuthenticated, markThreadRunning, scope, sendMessage],
+    [chatId, isAuthenticated, markThreadRunning, sendMessage],
   );
 
   // Account switch / sign-in: drop the previous account's in-memory
@@ -355,19 +324,28 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
     if (prevScope === scope) {
       return;
     }
-    const cached = loadMessages(scope, chatId);
-    setMessages(cached);
-    setHistoryLoading(
-      cached.length === 0 && chatIdFromUrl !== null && isAuthenticated,
-    );
+    // Signed-in: server-only — no local cache to restore (the rehydrate
+    // effect below fetches the conversation from the backend). Guest:
+    // restore the local cache as before.
+    if (isAuthenticated) {
+      setMessages([]);
+      setHistoryLoading(chatIdFromUrl !== null);
+    } else {
+      const cached = loadMessages(scope, chatId);
+      setMessages(cached);
+      setHistoryLoading(
+        cached.length === 0 && chatIdFromUrl !== null && isAuthenticated,
+      );
+    }
     setInput("");
   }, [chatId, chatIdFromUrl, isAuthenticated, scope, setInput, setMessages]);
 
-  // Load persisted messages when the active chat changes; detach a still-
-  // streaming fetch when navigating away (durable chat: the run keeps going
-  // server-side, history is persisted incrementally). When the local cache
-  // is empty (new device / cleared cache), rehydrate the conversation from
-  // the server. Threads with a run in flight skip the cache path — the
+  // Load the active chat when it changes; detach a still-streaming fetch
+  // when navigating away (durable chat: the run keeps going server-side,
+  // history is persisted incrementally). Signed-in: the conversation is
+  // rehydrated from the server below — the local cache is never consulted,
+  // so stale rows from another device can't surface. Guest: restore the
+  // local cache. Threads with a run in flight skip the cache path — the
   // attach effect below owns the authoritative live baseline.
   useEffect(() => {
     const changed = prevChatIdRef.current !== chatId;
@@ -380,19 +358,23 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
       ) {
         stopRef.current();
       }
-      const cached = loadMessages(scope, chatId);
-      setMessages(cached);
+      if (isAuthenticated) {
+        setMessages([]);
+        setHistoryLoading(chatIdFromUrl !== null);
+      } else {
+        const cached = loadMessages(scope, chatId);
+        setMessages(cached);
+        setHistoryLoading(
+          cached.length === 0 && chatIdFromUrl !== null && isAuthenticated,
+        );
+      }
       setInput("");
-      // Empty cache → history will be fetched from the server; show a
-      // skeleton (never the new-chat greeting — the thread exists).
-      setHistoryLoading(
-        cached.length === 0 && chatIdFromUrl !== null && isAuthenticated,
-      );
     }
     if (!chatIdFromUrl || !isAuthenticated || threadStatus === "running") {
       return;
     }
     let cancelled = false;
+    // Signed-in chats always rehydrate from the server (no local fallback).
     fetchThreadMessages(chatIdFromUrl)
       .then((server) => {
         if (cancelled) {
@@ -403,18 +385,16 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
           setHistoryLoading(false);
           return;
         }
-        setMessages((current) =>
-          current.length === 0
-            ? serverMessagesToChatMessages(server, { interrupted: true })
-            : current,
+        setMessages(
+          serverMessagesToChatMessages(server, { interrupted: true }),
         );
         setHistoryLoading(false);
       })
       .catch(() => {
         if (!cancelled) {
+          // Backend unreachable — nothing to show (no localStorage fallback).
           setHistoryLoading(false);
         }
-        // offline/backend error — keep whatever the local cache has
       });
     return () => {
       cancelled = true;
@@ -560,13 +540,16 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
     }
   }, [chatIdFromUrl, scope]);
 
-  // Persist messages after streaming finishes (and on any non-streaming change).
+  // Persist messages after streaming finishes (and on any non-streaming
+  // change). Signed-in: server-only — the backend writes finalized messages
+  // incrementally, so nothing is mirrored to localStorage (and the local
+  // mirror is never read). Guest: the localStorage cache stays.
   const prevStatusRef = useRef(status);
   useEffect(() => {
     const statusChanged = prevStatusRef.current !== status;
     prevStatusRef.current = status;
 
-    if (status === "streaming") {
+    if (status === "streaming" || isAuthenticated) {
       return;
     }
 
@@ -575,7 +558,7 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
     if (statusChanged && (status === "ready" || status === "error")) {
       upsertHistory(scope, chatId, messages);
     }
-  }, [chatId, messages, scope, status]);
+  }, [chatId, isAuthenticated, messages, scope, status]);
 
   const deleteChat = useCallback(
     (chatIdToDelete: string) => {

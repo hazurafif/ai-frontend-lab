@@ -12,8 +12,9 @@
 // The legacy keys are NEVER migrated into a signed-in scope: they contain a
 // mix of every account's rows (plus guest rows), so claiming them would
 // leak another account's threads into whoever claimed them. Signed-in
-// scopes start empty and are filled from the server (the source of truth)
-// plus rows the user themselves creates.
+// scopes are no longer read at all — the sidebar and the conversation
+// cache are server-only when authenticated — but the keys stay namespaced
+// so nothing from one account can ever leak into another's UI.
 //
 // The notification-stream cursor (lib/chat/chat-store.tsx) already follows
 // this scheme (`app-notification-seq:<username>`).
@@ -26,9 +27,6 @@ import {
 
 /** localStorage scope for anonymous sessions (also the legacy keys). */
 export const GUEST_SCOPE = "guest";
-
-/** localStorage key prefix of the per-scope cache-scrub marker. */
-const HISTORY_SCRUB_PREFIX = "chat-history-scrubbed:";
 
 /** The storage scope for a signed-in user: their username, or GUEST_SCOPE. */
 export function storageScope(username: string | null | undefined): string {
@@ -55,25 +53,4 @@ export function lastActiveStorageKey(scope: string): string {
   return scope === GUEST_SCOPE
     ? LAST_ACTIVE_CHAT_KEY
     : `${LAST_ACTIVE_CHAT_KEY}:${scope}`;
-}
-
-/** True once the scope's cache went through the one-time server scrub. */
-export function isHistoryScrubbed(scope: string): boolean {
-  try {
-    return (
-      window.localStorage.getItem(`${HISTORY_SCRUB_PREFIX}${scope}`) === "1"
-    );
-  } catch {
-    // storage unavailable — treat as scrubbed so callers don't retry
-    return true;
-  }
-}
-
-/** Mark a scope's cache as scrubbed (see isHistoryScrubbed). */
-export function markHistoryScrubbed(scope: string) {
-  try {
-    window.localStorage.setItem(`${HISTORY_SCRUB_PREFIX}${scope}`, "1");
-  } catch {
-    // storage unavailable — the marker just won't survive a reload
-  }
 }

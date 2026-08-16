@@ -88,7 +88,7 @@ export function AppSidebar() {
   const { setOpenMobile, toggleSidebar } = useSidebar();
   const { resolvedTheme, setTheme } = useTheme();
   const { deleteAllChats, newChat } = useActiveChat();
-  const { user, logout } = useAuth();
+  const { user, logout, isAuthenticated } = useAuth();
   const { activeTab, setActiveTab } = useSettingsTabs();
   const [mounted, setMounted] = useState(false);
   const [showDeleteAllDialog, setShowDeleteAllDialog] = useState(false);
@@ -134,13 +134,19 @@ export function AppSidebar() {
 
   // Settings sidebar: return to the chat UI. The / route always starts a
   // new chat, so restore the last opened conversation (tracked in
-  // use-active-chat, per-user cache scope) when it still exists; fall back
-  // to the home composer.
+  // use-active-chat, per-user cache scope). Signed-in: the sidebar is
+  // server-only, so there is no local existence check — navigate to the
+  // thread and let the server render it (empty state if it's gone).
+  // Guest: keep the local-cache check.
   const handleBackToChat = useCallback(() => {
     setOpenMobile(false);
     try {
       const scope = storageScope(user?.username);
       const lastId = window.localStorage.getItem(lastActiveStorageKey(scope));
+      if (lastId && isAuthenticated) {
+        router.push(`/chat/${lastId}`);
+        return;
+      }
       const history = loadHistory(scope);
       if (lastId && history.some((chat) => chat.id === lastId)) {
         router.push(`/chat/${lastId}`);
@@ -150,7 +156,7 @@ export function AppSidebar() {
       // malformed cache — fall through to the home composer
     }
     router.push("/");
-  }, [router, setOpenMobile, user]);
+  }, [isAuthenticated, router, setOpenMobile, user]);
 
   const handleShowDeleteAllDialog = useCallback(() => {
     setShowDeleteAllDialog(true);
