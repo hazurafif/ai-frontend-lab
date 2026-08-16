@@ -85,10 +85,8 @@ import {
   type BackendConnection,
   backendSkillToSkill,
   backendToolToToolConfig,
-  CONNECTION_KINDS,
   CONNECTION_NAME_RE,
   type ConnectionInput,
-  type ConnectionKind,
   clearAllowedModels,
   createConnection,
   DEFAULT_SETTINGS,
@@ -96,6 +94,7 @@ import {
   fetchAllowedModels,
   fetchAppSettings,
   fetchBackendHealth,
+  fetchConnectionModels,
   fetchConnections,
   fetchKnowledgeBasesWithDocuments,
   fetchSkills,
@@ -1029,7 +1028,7 @@ function GeneralTab({
   };
 
   return (
-    <div className="flex max-w-2xl flex-col gap-4">
+    <div className="flex flex-col gap-4">
       <Card>
         <FieldGroup>
           <Field>
@@ -1413,16 +1412,47 @@ function ModelTab({
     }
   };
 
-  // Test a draft connection (editor dialog): the /api/models route fetches
-  // the draft source's /v1/models list using the draft's own token.
+  // Test a draft connection (editor dialog): /api/models fetches the
+  // draft source's /v1/models list using the draft's own token. Editing a
+  // saved connection, the stored token is write-only (never prefilled) —
+  // test through the backend instead, which uses the stored token.
   const testDraftConnection = async () => {
     if (!draft) {
       return;
     }
+    if (
+      !draft.apiToken?.trim() &&
+      editing?.hasToken &&
+      draft.baseUrl?.trim() === (editing.baseUrl ?? "").trim()
+    ) {
+      setTesting(true);
+      setTestResult(null);
+      try {
+        const sources = await fetchConnectionModels();
+        const source = sources.find(
+          (candidate) => candidate.connection === editing.name,
+        );
+        if (!source) {
+          throw new Error("Connection not found");
+        }
+        setTestResult(
+          source.error
+            ? { ok: false, message: source.error }
+            : { ok: true, message: `${source.models.length} models available` },
+        );
+      } catch (error) {
+        setTestResult({
+          ok: false,
+          message:
+            error instanceof Error ? error.message : "Test failed — try again.",
+        });
+      } finally {
+        setTesting(false);
+      }
+      return;
+    }
     if (!draft.apiToken?.trim()) {
-      toast.error(
-        "Enter an API token to test the connection (tokens are write-only).",
-      );
+      toast.error("Enter an API token to test the connection.");
       return;
     }
     setTesting(true);
@@ -1585,13 +1615,108 @@ function ModelTab({
       return;
     }
     await refreshConnections();
-    toast.success(
-      `${connection.name} is now the default ${connection.kind} connection`,
-    );
+    toast.success(`${connection.name} is now the default connection`);
   };
 
+  // This card is chat-completions only — the editor always saves kind=llm.
+  const llmConnections = connections?.filter(
+    (connection) => connection.kind === "llm",
+  );
+
   return (
-    <div className="flex max-w-2xl flex-col gap-4">
+    <div className="flex flex-col gap-4">
+      {isAdmin && (
+        <Card className="flex flex-col gap-4">
+          <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-0.5">
+              <span className="text-sm font-medium">Connections</span>
+              <span className="text-[13px] text-muted-foreground">
+                Chat Completions API endpoints (OpenAI-compatible).
+              </span>
+            </div>
+            <Button
+              onClick={() => openConnectionEditor(null)}
+              size="sm"
+              type="button"
+              variant="secondary"
+            >
+              <PlusIcon data-icon="inline-start" />
+              New connection
+            </Button>
+          </div>
+          {llmConnections === undefined ? (
+            <p className="text-[13px] text-muted-foreground">
+              Loading connections…
+            </p>
+          ) : llmConnections.length === 0 ? null : (
+            <Table className="min-w-[640px]">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Base URL</TableHead>
+                  <TableHead>Token</TableHead>
+                  <TableHead className="w-24">Default</TableHead>
+                  <TableHead className="w-40 text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {llmConnections.map((connection) => (
+                  <TableRow key={connection.id}>
+                    <TableCell>
+                      <span className="font-mono text-[13px]">
+                        {connection.name}
+                      </span>
+                    </TableCell>
+                    <TableCell className="max-w-56 truncate font-mono text-[12px] text-muted-foreground">
+                      {connection.baseUrl ?? "—"}
+                    </TableCell>
+                    <TableCell className="font-mono text-[12px] text-muted-foreground">
+                      {connection.hasToken
+                        ? (connection.apiToken ?? "••••")
+                        : "—"}
+                    </TableCell>
+                    <TableCell>
+                      {connection.isDefault ? (
+                        <Badge>default</Badge>
+                      ) : (
+                        <Button
+                          onClick={() => makeDefault(connection)}
+                          size="sm"
+                          type="button"
+                          variant="ghost"
+                        >
+                          Set default
+                        </Button>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-1">
+                        <Button
+                          onClick={() => openConnectionEditor(connection)}
+                          size="sm"
+                          type="button"
+                          variant="ghost"
+                        >
+                          Edit
+                        </Button>
+                        <Button
+                          aria-label={`Delete ${connection.name}`}
+                          onClick={() => removeConnection(connection.name)}
+                          size="icon"
+                          type="button"
+                          variant="ghost"
+                        >
+                          <TrashIcon data-icon="inline-start" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </Card>
+      )}
       {isAdmin && (
         <Card className="flex flex-col gap-4">
           <div className="flex items-center justify-between gap-4">
@@ -1760,109 +1885,6 @@ function ModelTab({
           </Field>
         </FieldGroup>
       </Card>
-      {isAdmin && (
-        <Card className="flex flex-col gap-4">
-          <div className="flex items-center justify-between">
-            <div className="flex flex-col gap-0.5">
-              <span className="text-sm font-medium">Connections</span>
-              <span className="text-[13px] text-muted-foreground">
-                Provider credentials for the agent&apos;s LLM, embeddings, MCP,
-                Weaviate and SearXNG.
-              </span>
-            </div>
-            <Button
-              onClick={() => openConnectionEditor(null)}
-              size="sm"
-              type="button"
-              variant="secondary"
-            >
-              <PlusIcon data-icon="inline-start" />
-              New connection
-            </Button>
-          </div>
-          {connections === null ? (
-            <p className="text-[13px] text-muted-foreground">
-              Loading connections…
-            </p>
-          ) : connections.length === 0 ? (
-            <p className="text-[13px] text-muted-foreground">
-              None yet — create one (kind=llm needs a base URL + token).
-            </p>
-          ) : (
-            <Card className="p-0">
-              <Table className="min-w-[640px]">
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Kind</TableHead>
-                    <TableHead>Base URL</TableHead>
-                    <TableHead>Token</TableHead>
-                    <TableHead className="w-24">Default</TableHead>
-                    <TableHead className="w-40 text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {connections.map((connection) => (
-                    <TableRow key={connection.id}>
-                      <TableCell>
-                        <span className="font-mono text-[13px]">
-                          {connection.name}
-                        </span>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline">{connection.kind}</Badge>
-                      </TableCell>
-                      <TableCell className="max-w-56 truncate font-mono text-[12px] text-muted-foreground">
-                        {connection.baseUrl ?? "—"}
-                      </TableCell>
-                      <TableCell className="font-mono text-[12px] text-muted-foreground">
-                        {connection.hasToken
-                          ? (connection.apiToken ?? "••••")
-                          : "—"}
-                      </TableCell>
-                      <TableCell>
-                        {connection.isDefault ? (
-                          <Badge>default</Badge>
-                        ) : (
-                          <Button
-                            onClick={() => makeDefault(connection)}
-                            size="sm"
-                            type="button"
-                            variant="ghost"
-                          >
-                            Set default
-                          </Button>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex justify-end gap-1">
-                          <Button
-                            onClick={() => openConnectionEditor(connection)}
-                            size="sm"
-                            type="button"
-                            variant="ghost"
-                          >
-                            Edit
-                          </Button>
-                          <Button
-                            aria-label={`Delete ${connection.name}`}
-                            onClick={() => removeConnection(connection.name)}
-                            size="icon"
-                            type="button"
-                            variant="ghost"
-                          >
-                            <TrashIcon data-icon="inline-start" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </Card>
-          )}
-        </Card>
-      )}
       <div>
         <Button onClick={save}>Save model</Button>
       </div>
@@ -1979,39 +2001,6 @@ function ModelTab({
               </FieldDescription>
             </Field>
             <Field>
-              <FieldLabel htmlFor="connection-kind">Kind</FieldLabel>
-              <Select
-                onValueChange={(value) => {
-                  if (value === null) {
-                    return;
-                  }
-                  setDraft((current) =>
-                    current
-                      ? {
-                          ...current,
-                          kind: value as ConnectionKind,
-                        }
-                      : current,
-                  );
-                }}
-                value={draft?.kind ?? "llm"}
-              >
-                <SelectTrigger className="w-full" id="connection-kind">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {CONNECTION_KINDS.map((kind) => (
-                    <SelectItem key={kind} value={kind}>
-                      {kind}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <FieldDescription>
-                llm (agent model), embeddings, mcp, weaviate or searxng.
-              </FieldDescription>
-            </Field>
-            <Field>
               <FieldLabel htmlFor="connection-base-url">Base URL</FieldLabel>
               <Input
                 id="connection-base-url"
@@ -2056,7 +2045,7 @@ function ModelTab({
                     Default connection
                   </span>
                   <span className="text-[13px] text-muted-foreground">
-                    One default per kind.
+                    The default connection serves chat.
                   </span>
                 </div>
                 <Switch
@@ -2138,6 +2127,14 @@ export default function SettingsPage() {
   const [loaded, setLoaded] = useState(false);
   const [backendOnline, setBackendOnline] = useState(false);
   const isAdmin = user?.role === "admin";
+
+  // Deep-link support: ?tab=model jumps straight to that tab.
+  useEffect(() => {
+    const tab = new URLSearchParams(window.location.search).get("tab");
+    if (tab) {
+      setActiveTab(tab as SettingsTabId);
+    }
+  }, [setActiveTab]);
 
   useEffect(() => {
     const stored = loadSettings();
