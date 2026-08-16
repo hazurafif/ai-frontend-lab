@@ -18,20 +18,13 @@ import {
 } from "@/lib/threads";
 import type { ChatMessage } from "@/lib/types";
 import { generateUUID } from "@/lib/utils";
+import { isToolPart } from "./chunk-merge";
 
 export const ATTACH_TERMINAL_EVENTS = ["done", "interrupt", "error"] as const;
 
 /** True when the attach stream has ended (caller should re-fetch history). */
 export function isAttachTerminalEvent(event: string): boolean {
   return (ATTACH_TERMINAL_EVENTS as readonly string[]).includes(event);
-}
-
-function isToolPart(
-  part: ChatMessage["parts"][number],
-): part is ChatMessage["parts"][number] & {
-  toolCallId: string;
-} {
-  return "toolCallId" in part && typeof part.toolCallId === "string";
 }
 
 /**

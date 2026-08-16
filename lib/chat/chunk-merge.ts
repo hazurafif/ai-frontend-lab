@@ -19,7 +19,7 @@ function chunkString(chunk: Chunk, key: string): string {
 
 export { chunkString };
 
-function isToolPart(
+export function isToolPart(
   part: ChatMessage["parts"][number],
 ): part is ChatMessage["parts"][number] & { toolCallId: string } {
   return "toolCallId" in part && typeof part.toolCallId === "string";
