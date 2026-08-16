@@ -19,7 +19,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -54,6 +53,20 @@ import {
   type ManagedUser,
   updateUser,
 } from "@/lib/users";
+import { cn } from "@/lib/utils";
+
+// Same card style as the settings page's local Card.
+function Card({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      className={cn(
+        "rounded-2xl border border-border/60 bg-card p-4 shadow-[var(--shadow-card)] md:p-5",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
 
 const USERNAME_RE = /^[a-zA-Z0-9_]+$/;
 
