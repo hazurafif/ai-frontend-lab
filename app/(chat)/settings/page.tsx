@@ -1474,110 +1474,118 @@ function ModelTab({
 
   return (
     <div className="flex max-w-2xl flex-col gap-4">
-      <Card>
-        <FieldGroup>
-          <Field>
-            <FieldLabel>Completion source</FieldLabel>
-            <Select
-              onValueChange={(value) =>
-                applyProvider(value as CompletionProviderId)
-              }
-              value={connDraft.provider}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {COMPLETION_PROVIDERS.map((provider) => (
-                  <SelectItem key={provider.id} value={provider.id}>
-                    {provider.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <FieldDescription>
-              Where the model list below comes from — server default = server
-              environment (.env.local), or your key via the source&apos;s
-              /v1/models endpoint. Chat requests use the backend&apos;s saved
-              Connections below.
-            </FieldDescription>
-          </Field>
-          {connDraft.provider !== "default" && (
-            <>
-              <Field>
-                <FieldLabel htmlFor="model-connection-base-url">
-                  Base URL
-                </FieldLabel>
-                <Input
-                  id="model-connection-base-url"
-                  onChange={(event) => {
-                    setConnDraft((current) => ({
-                      ...current,
-                      baseUrl: event.target.value,
-                    }));
-                    setTestResult(null);
-                  }}
-                  placeholder={
-                    completionProvider(connDraft.provider).defaultBaseUrl ||
-                    "https://your-endpoint/v1"
-                  }
-                  value={connDraft.baseUrl}
-                />
-                <FieldDescription>
-                  OpenAI-compatible /v1 endpoint (Gemini&apos;s
-                  OpenAI-compatibility layer included).
-                </FieldDescription>
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="model-connection-api-key">
-                  API key
-                </FieldLabel>
-                <Input
-                  id="model-connection-api-key"
-                  onChange={(event) => {
-                    setConnDraft((current) => ({
-                      ...current,
-                      apiKey: event.target.value,
-                    }));
-                    setTestResult(null);
-                  }}
-                  placeholder="sk-…"
-                  type="password"
-                  value={connDraft.apiKey}
-                />
-              </Field>
-            </>
-          )}
-          <div className="flex items-center gap-3">
-            <Button
-              disabled={testing}
-              onClick={testConnection}
-              type="button"
-              variant="outline"
-            >
-              {testing ? "Testing…" : "Test connection"}
-            </Button>
-            {testResult && (
-              <span
-                className={cn(
-                  "flex items-center gap-1.5 text-[13px]",
-                  testResult.ok ? "text-muted-foreground" : "text-destructive",
-                )}
+      {isAdmin && (
+        <Card>
+          <FieldGroup>
+            <Field>
+              <FieldLabel>Completion source</FieldLabel>
+              <Select
+                onValueChange={(value) =>
+                  applyProvider(value as CompletionProviderId)
+                }
+                value={connDraft.provider}
               >
-                {testResult.ok ? (
-                  <CircleCheckIcon className="size-4 shrink-0" />
-                ) : (
-                  <TriangleAlertIcon className="size-4 shrink-0" />
-                )}
-                {testResult.message}
-              </span>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {COMPLETION_PROVIDERS.map((provider) => (
+                    <SelectItem key={provider.id} value={provider.id}>
+                      {provider.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <FieldDescription>
+                Where the model list below comes from — server default = server
+                environment (.env.local), or your key via the source&apos;s
+                /v1/models endpoint. Chat requests use the backend&apos;s saved
+                Connections below.
+              </FieldDescription>
+            </Field>
+            {connDraft.provider !== "default" && (
+              <>
+                <Field>
+                  <FieldLabel htmlFor="model-connection-base-url">
+                    Base URL
+                  </FieldLabel>
+                  <Input
+                    id="model-connection-base-url"
+                    onChange={(event) => {
+                      setConnDraft((current) => ({
+                        ...current,
+                        baseUrl: event.target.value,
+                      }));
+                      setTestResult(null);
+                    }}
+                    placeholder={
+                      completionProvider(connDraft.provider).defaultBaseUrl ||
+                      "https://your-endpoint/v1"
+                    }
+                    value={connDraft.baseUrl}
+                  />
+                  <FieldDescription>
+                    OpenAI-compatible /v1 endpoint (Gemini&apos;s
+                    OpenAI-compatibility layer included).
+                  </FieldDescription>
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="model-connection-api-key">
+                    API key
+                  </FieldLabel>
+                  <Input
+                    id="model-connection-api-key"
+                    onChange={(event) => {
+                      setConnDraft((current) => ({
+                        ...current,
+                        apiKey: event.target.value,
+                      }));
+                      setTestResult(null);
+                    }}
+                    placeholder="sk-…"
+                    type="password"
+                    value={connDraft.apiKey}
+                  />
+                </Field>
+              </>
             )}
-            <Button className="ml-auto" onClick={saveConnection} type="button">
-              Save connection
-            </Button>
-          </div>
-        </FieldGroup>
-      </Card>
+            <div className="flex items-center gap-3">
+              <Button
+                disabled={testing}
+                onClick={testConnection}
+                type="button"
+                variant="outline"
+              >
+                {testing ? "Testing…" : "Test connection"}
+              </Button>
+              {testResult && (
+                <span
+                  className={cn(
+                    "flex items-center gap-1.5 text-[13px]",
+                    testResult.ok
+                      ? "text-muted-foreground"
+                      : "text-destructive",
+                  )}
+                >
+                  {testResult.ok ? (
+                    <CircleCheckIcon className="size-4 shrink-0" />
+                  ) : (
+                    <TriangleAlertIcon className="size-4 shrink-0" />
+                  )}
+                  {testResult.message}
+                </span>
+              )}
+              <Button
+                className="ml-auto"
+                onClick={saveConnection}
+                type="button"
+              >
+                Save connection
+              </Button>
+            </div>
+          </FieldGroup>
+        </Card>
+      )}
       <Card>
         <FieldGroup>
           <Field>
