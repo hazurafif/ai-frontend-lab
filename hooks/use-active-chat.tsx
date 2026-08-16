@@ -36,9 +36,9 @@ import {
 } from "@/lib/storage";
 import {
   cancelThread,
+  deleteAllThreads,
   deleteThread,
   fetchThreadMessages,
-  fetchThreads,
   serverMessagesToChatMessages,
 } from "@/lib/threads";
 import type { ChatMessage } from "@/lib/types";
@@ -77,7 +77,7 @@ type ActiveChatContextValue = {
    * time; reactive state lives in ChatShell (see currentModelIdRef). */
   thinkingEffortRef: MutableRefObject<ThinkingEffort>;
   deleteChat: (chatId: string) => void;
-  deleteAllChats: () => void;
+  deleteAllChats: () => Promise<void> | void;
   /** Start a fresh conversation, also when already on "/". */
   newChat: () => void;
   /** Resume a human-in-the-loop interrupt. Keeps the interrupted assistant
@@ -612,16 +612,11 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
     saveHistory(scope, []);
     notifyHistoryChanged();
     if (isAuthenticated) {
-      // Delete every server thread; notify again once the dust settles so
-      // the sidebar doesn't briefly re-show threads from the server.
-      fetchThreads()
-        .then((threads) =>
-          Promise.allSettled(threads.map((t) => deleteThread(t.thread_id))),
-        )
-        .catch(() => {
-          // offline — nothing to delete server-side
-        })
-        .finally(() => notifyHistoryChanged());
+      // Delete every server thread in one request; notify again once the
+      // dust settles so the sidebar doesn't briefly re-show threads from
+      // the server. Rejects when the backend call fails (offline / error)
+      // so the caller can surface it.
+      return deleteAllThreads().finally(() => notifyHistoryChanged());
     }
   }, [isAuthenticated, scope]);
 

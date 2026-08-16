@@ -167,6 +167,11 @@ export async function deleteThread(threadId: string): Promise<void> {
   });
 }
 
+/** Delete ALL of the current user's threads in one request. */
+export async function deleteAllThreads(): Promise<void> {
+  await threadFetch("/api/chat/threads", { method: "DELETE" });
+}
+
 /** Rename a thread; returns the updated thread. */
 export async function renameThread(
   threadId: string,

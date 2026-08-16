@@ -159,8 +159,19 @@ export function AppSidebar() {
   const handleDeleteAll = useCallback(() => {
     setShowDeleteAllDialog(false);
     router.replace("/");
-    deleteAllChats();
-    toast.success("All chats deleted");
+    // Authenticated: the promise settles when the backend delete lands —
+    // only then toast success (or surface the failure). Guest: the local
+    // wipe is synchronous.
+    const done = deleteAllChats();
+    if (done) {
+      done
+        .then(() => toast.success("All chats deleted"))
+        .catch(() => {
+          toast.error("Failed to delete chats on the server");
+        });
+    } else {
+      toast.success("All chats deleted");
+    }
   }, [deleteAllChats, router]);
 
   const handleToggleTheme = useCallback(() => {
