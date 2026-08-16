@@ -1201,21 +1201,11 @@ function GeneralTab({
   );
 }
 
-// --- Model tab ----------------------------------------------------------------
+// --- Connections tab ----------------------------------------------------------
 
-function ModelTab({
-  settings,
-  setSettings,
-  isAdmin,
-}: {
-  settings: SettingsState;
-  setSettings: (updater: (current: SettingsState) => SettingsState) => void;
-  isAdmin: boolean;
-}) {
-  const [modelId, setModelId] = useState(settings.model);
-  const [open, setOpen] = useState(false);
+function ConnectionsTab() {
   // Saved provider connections (admin /connections); null = not loaded
-  // (non-admin, backend offline, or still fetching).
+  // (backend offline, or still fetching).
   const [connections, setConnections] = useState<BackendConnection[] | null>(
     null,
   );
@@ -1230,188 +1220,6 @@ function ModelTab({
     ok: boolean;
     message: string;
   } | null>(null);
-  // Live model catalog: the backend aggregates every saved llm connection's
-  // model list (GET /connections/models, per-source error reporting) and
-  // the caller's allowlist restriction filters the picker for user-role
-  // accounts. Models stay null while loading or on failure → callers fall
-  // back to the built-in list.
-  const { models: sourceModels, sources, allowed } = useModelCatalog();
-  // The admin-managed global allowlist (which models user-role accounts may
-  // use); null = not loaded (non-admin, backend offline, still fetching).
-  const [allowlist, setAllowlist] = useState<AllowedModels | null>(null);
-  // Allowlist editor: checked model ids (null = dialog closed).
-  const [allowlistDraft, setAllowlistDraft] = useState<string[] | null>(null);
-  const [savingAllowlist, setSavingAllowlist] = useState(false);
-  // The live id may come from the backend (GET /health) and not exist in
-  // the list — never silently fall back to a wrong preset entry.
-  // When the current id isn't in the list, surface it at the top as-is so
-  // the active model stays visible and re-selectable. No presets: the list
-  // is only ever the live catalog (aggregated connections / allowlist).
-  const models: ChatModel[] = useMemo(() => {
-    const base = sourceModels ?? [];
-    if (base.some((m) => m.id === modelId)) {
-      return base;
-    }
-    return [
-      {
-        id: modelId,
-        name: modelId,
-        description: "Model reported by the backend — not in the list",
-      },
-      ...base,
-    ];
-  }, [modelId, sourceModels]);
-
-  useEffect(() => {
-    setModelId(settings.model);
-  }, [settings.model]);
-
-  // Options of the allowlist editor: every discovered model id (from all
-  // saved connections) plus the currently-allowed ids that are no longer in
-  // the catalog, so saving never silently drops them.
-  const allowlistOptions: Array<{ id: string; source: string }> =
-    useMemo(() => {
-      const options: Array<{ id: string; source: string }> = [];
-      const seen = new Set<string>();
-      for (const source of sources ?? []) {
-        const prefix = source.base_url?.includes(
-          "generativelanguage.googleapis.com",
-        )
-          ? "google_genai"
-          : "openai";
-        for (const model of source.models) {
-          const id = `${prefix}:${model.id}`;
-          if (seen.has(id)) {
-            continue;
-          }
-          seen.add(id);
-          options.push({ id, source: source.connection });
-        }
-      }
-      for (const id of allowlist?.models ?? []) {
-        if (!seen.has(id)) {
-          seen.add(id);
-          options.push({ id, source: "allowed — not in the current catalog" });
-        }
-      }
-      return options;
-    }, [allowlist, sources]);
-
-  const save = async () => {
-    setSettings((current) => ({ ...current, model: modelId }));
-    // The backend's builtin default agent serves the default llm
-    // connection's extra.model (agent configs are the source of truth —
-    // the chat body's selectedChatModel is informational). As admin,
-    // apply the picked model to the default llm connection so the choice
-    // actually takes effect; the backend rebuilds agent graphs on
-    // connection mutations, so it applies on the next run.
-    if (isAdmin && modelId !== settings.model) {
-      const defaultLlm = connections?.find(
-        (connection) => connection.kind === "llm" && connection.isDefault,
-      );
-      if (defaultLlm) {
-        try {
-          await updateConnection(defaultLlm.name, {
-            baseUrl: defaultLlm.baseUrl ?? undefined,
-            // Full replace — carry provider options and keep the stored
-            // token; extra.model is what the builtin agent resolves.
-            extra: { ...defaultLlm.extra, model: modelId },
-            isDefault: true,
-            kind: "llm",
-            name: defaultLlm.name,
-          });
-        } catch (error) {
-          toast.error(
-            error instanceof Error
-              ? error.message
-              : "Failed to apply the model to the default connection",
-          );
-          return;
-        }
-        await refreshConnections();
-        toast.success(
-          `Model set to ${modelId} — the default llm connection now serves it`,
-        );
-        return;
-      }
-      toast.success(
-        `Model set to ${modelId} (saved locally — no default llm connection yet)`,
-      );
-      return;
-    }
-    toast.success(`Model set to ${modelId}`);
-  };
-
-  // The global allowlist (admin-managed, role-based): fetch on mount and
-  // whenever settings change (connections added/removed alter the ids).
-  useEffect(() => {
-    if (!isAdmin) {
-      return;
-    }
-    let cancelled = false;
-    fetchAllowedModels()
-      .then((next) => {
-        if (!cancelled) {
-          setAllowlist(next);
-        }
-      })
-      .catch(() => {
-        // Backend offline — leave the list empty.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [isAdmin]);
-
-  const refreshAllowlist = async () => {
-    try {
-      setAllowlist(await fetchAllowedModels());
-    } catch {
-      // Backend offline — keep the cached list.
-    }
-  };
-
-  const openAllowlistEditor = () => {
-    setAllowlistDraft([...(allowlist?.models ?? [])]);
-  };
-
-  const saveAllowlist = async () => {
-    if (!allowlistDraft) {
-      return;
-    }
-    setSavingAllowlist(true);
-    try {
-      const next = await updateAllowedModels(allowlistDraft);
-      setAllowlist(next);
-      setAllowlistDraft(null);
-      toast.success(
-        next.models.length === 0
-          ? "Allowlist saved — user accounts can no longer pick models"
-          : `Allowlist saved — ${next.models.length} model(s) allowed for user accounts`,
-      );
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Failed to save the allowlist",
-      );
-    } finally {
-      setSavingAllowlist(false);
-    }
-  };
-
-  const removeAllowlist = async () => {
-    try {
-      await clearAllowedModels();
-      await refreshAllowlist();
-      toast.success("Restriction removed — every model is allowed again");
-    } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "Failed to remove the restriction",
-      );
-    }
-  };
-
   // Test a draft connection (editor dialog): /api/models fetches the
   // draft source's /v1/models list using the draft's own token. Editing a
   // saved connection, the stored token is write-only (never prefilled) —
@@ -1490,9 +1298,6 @@ function ModelTab({
   };
 
   useEffect(() => {
-    if (!isAdmin) {
-      return;
-    }
     let cancelled = false;
     fetchConnections()
       .then((list) => {
@@ -1506,7 +1311,7 @@ function ModelTab({
     return () => {
       cancelled = true;
     };
-  }, [isAdmin]);
+  }, []);
 
   const refreshConnections = async () => {
     try {
@@ -1625,98 +1430,449 @@ function ModelTab({
 
   return (
     <div className="flex flex-col gap-4">
-      {isAdmin && (
-        <Card className="flex flex-col gap-4">
-          <div className="flex items-center justify-between">
-            <div className="flex flex-col gap-0.5">
-              <span className="text-sm font-medium">Connections</span>
-              <span className="text-[13px] text-muted-foreground">
-                Chat Completions API endpoints (OpenAI-compatible).
-              </span>
-            </div>
-            <Button
-              onClick={() => openConnectionEditor(null)}
-              size="sm"
-              type="button"
-              variant="secondary"
-            >
-              <PlusIcon data-icon="inline-start" />
-              New connection
-            </Button>
-          </div>
-          {llmConnections === undefined ? (
-            <p className="text-[13px] text-muted-foreground">
-              Loading connections…
-            </p>
-          ) : llmConnections.length === 0 ? null : (
-            <Table className="min-w-[640px]">
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Base URL</TableHead>
-                  <TableHead>Token</TableHead>
-                  <TableHead className="w-24">Default</TableHead>
-                  <TableHead className="w-40 text-right">Actions</TableHead>
+      <div className="flex items-center justify-between">
+        <p className="text-[13px] text-muted-foreground">
+          OpenAI-compatible base URL — serves /v1/models and
+          /v1/chat/completions.
+        </p>
+        <Button
+          onClick={() => openConnectionEditor(null)}
+          size="sm"
+          type="button"
+          variant="secondary"
+        >
+          <PlusIcon data-icon="inline-start" />
+          New connection
+        </Button>
+      </div>
+      {llmConnections === undefined ? (
+        <p className="text-[13px] text-muted-foreground">
+          Loading connections…
+        </p>
+      ) : llmConnections.length === 0 ? null : (
+        <Card className="p-0">
+          <Table className="min-w-[640px]">
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Base URL</TableHead>
+                <TableHead>Token</TableHead>
+                <TableHead className="w-24">Default</TableHead>
+                <TableHead className="w-40 text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {llmConnections.map((connection) => (
+                <TableRow key={connection.id}>
+                  <TableCell>
+                    <span className="font-mono text-[13px]">
+                      {connection.name}
+                    </span>
+                  </TableCell>
+                  <TableCell className="max-w-56 truncate font-mono text-[12px] text-muted-foreground">
+                    {connection.baseUrl ?? "—"}
+                  </TableCell>
+                  <TableCell className="font-mono text-[12px] text-muted-foreground">
+                    {connection.hasToken
+                      ? (connection.apiToken ?? "••••")
+                      : "—"}
+                  </TableCell>
+                  <TableCell>
+                    {connection.isDefault ? (
+                      <Badge>default</Badge>
+                    ) : (
+                      <Button
+                        onClick={() => makeDefault(connection)}
+                        size="sm"
+                        type="button"
+                        variant="ghost"
+                      >
+                        Set default
+                      </Button>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex justify-end gap-1">
+                      <Button
+                        onClick={() => openConnectionEditor(connection)}
+                        size="sm"
+                        type="button"
+                        variant="ghost"
+                      >
+                        Edit
+                      </Button>
+                      <Button
+                        aria-label={`Delete ${connection.name}`}
+                        onClick={() => removeConnection(connection.name)}
+                        size="icon"
+                        type="button"
+                        variant="ghost"
+                      >
+                        <TrashIcon data-icon="inline-start" />
+                      </Button>
+                    </div>
+                  </TableCell>
                 </TableRow>
-              </TableHeader>
-              <TableBody>
-                {llmConnections.map((connection) => (
-                  <TableRow key={connection.id}>
-                    <TableCell>
-                      <span className="font-mono text-[13px]">
-                        {connection.name}
-                      </span>
-                    </TableCell>
-                    <TableCell className="max-w-56 truncate font-mono text-[12px] text-muted-foreground">
-                      {connection.baseUrl ?? "—"}
-                    </TableCell>
-                    <TableCell className="font-mono text-[12px] text-muted-foreground">
-                      {connection.hasToken
-                        ? (connection.apiToken ?? "••••")
-                        : "—"}
-                    </TableCell>
-                    <TableCell>
-                      {connection.isDefault ? (
-                        <Badge>default</Badge>
-                      ) : (
-                        <Button
-                          onClick={() => makeDefault(connection)}
-                          size="sm"
-                          type="button"
-                          variant="ghost"
-                        >
-                          Set default
-                        </Button>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-1">
-                        <Button
-                          onClick={() => openConnectionEditor(connection)}
-                          size="sm"
-                          type="button"
-                          variant="ghost"
-                        >
-                          Edit
-                        </Button>
-                        <Button
-                          aria-label={`Delete ${connection.name}`}
-                          onClick={() => removeConnection(connection.name)}
-                          size="icon"
-                          type="button"
-                          variant="ghost"
-                        >
-                          <TrashIcon data-icon="inline-start" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
+              ))}
+            </TableBody>
+          </Table>
         </Card>
       )}
+      <Dialog
+        open={draft !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditing(null);
+            setDraft(null);
+            setTestResult(null);
+          }
+        }}
+      >
+        <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>
+              {editing ? `Edit ${editing.name}` : "New connection"}
+            </DialogTitle>
+          </DialogHeader>
+          <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor="connection-name">Name</FieldLabel>
+              <Input
+                disabled={editing !== null}
+                id="connection-name"
+                onChange={(event) =>
+                  setDraft((current) =>
+                    current
+                      ? { ...current, name: event.target.value }
+                      : current,
+                  )
+                }
+                placeholder="e.g. my-vllm"
+                value={draft?.name ?? ""}
+              />
+              <FieldDescription>
+                Lowercase letters, numbers, dots/underscores/hyphens.
+              </FieldDescription>
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="connection-base-url">Base URL</FieldLabel>
+              <Input
+                id="connection-base-url"
+                onChange={(event) =>
+                  setDraft((current) =>
+                    current
+                      ? { ...current, baseUrl: event.target.value }
+                      : current,
+                  )
+                }
+                placeholder="https://your-endpoint/v1"
+                value={draft?.baseUrl ?? ""}
+              />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="connection-api-token">API token</FieldLabel>
+              <Input
+                id="connection-api-token"
+                onChange={(event) =>
+                  setDraft((current) =>
+                    current
+                      ? { ...current, apiToken: event.target.value }
+                      : current,
+                  )
+                }
+                placeholder={
+                  editing?.hasToken
+                    ? "Leave empty to keep the stored token"
+                    : "sk-…"
+                }
+                type="password"
+                value={draft?.apiToken ?? ""}
+              />
+              <FieldDescription>
+                Write-only; empty keeps the stored token when editing.
+              </FieldDescription>
+            </Field>
+            <Field>
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-sm font-medium">
+                    Default connection
+                  </span>
+                  <span className="text-[13px] text-muted-foreground">
+                    The default connection serves chat.
+                  </span>
+                </div>
+                <Switch
+                  checked={Boolean(draft?.isDefault)}
+                  onCheckedChange={(checked) =>
+                    setDraft((current) =>
+                      current ? { ...current, isDefault: checked } : current,
+                    )
+                  }
+                  aria-label="Default connection"
+                />
+              </div>
+            </Field>
+          </FieldGroup>
+          <DialogFooter>
+            <div className="mr-auto flex items-center gap-3">
+              <Button
+                disabled={testing}
+                onClick={testDraftConnection}
+                type="button"
+                variant="outline"
+              >
+                {testing ? "Testing…" : "Test connection"}
+              </Button>
+              {testResult && (
+                <span
+                  className={cn(
+                    "flex items-center gap-1.5 text-[13px]",
+                    testResult.ok
+                      ? "text-muted-foreground"
+                      : "text-destructive",
+                  )}
+                >
+                  {testResult.ok ? (
+                    <CircleCheckIcon className="size-4 shrink-0" />
+                  ) : (
+                    <TriangleAlertIcon className="size-4 shrink-0" />
+                  )}
+                  {testResult.message}
+                </span>
+              )}
+            </div>
+            <Button
+              onClick={() => {
+                setEditing(null);
+                setDraft(null);
+                setTestResult(null);
+              }}
+              type="button"
+              variant="outline"
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={savingConnection}
+              onClick={saveConnectionEditor}
+              type="button"
+            >
+              {savingConnection
+                ? "Saving…"
+                : editing
+                  ? "Save connection"
+                  : "Create connection"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// --- Model tab ----------------------------------------------------------------
+
+function ModelTab({
+  settings,
+  setSettings,
+  isAdmin,
+}: {
+  settings: SettingsState;
+  setSettings: (updater: (current: SettingsState) => SettingsState) => void;
+  isAdmin: boolean;
+}) {
+  const [modelId, setModelId] = useState(settings.model);
+  const [open, setOpen] = useState(false);
+  // Live model catalog: the backend aggregates every saved llm connection's
+  // model list (GET /connections/models, per-source error reporting) and
+  // the caller's allowlist restriction filters the picker for user-role
+  // accounts. Models stay null while loading or on failure → callers fall
+  // back to the built-in list.
+  const { models: sourceModels, sources, allowed } = useModelCatalog();
+  // The admin-managed global allowlist (which models user-role accounts may
+  // use); null = not loaded (non-admin, backend offline, still fetching).
+  const [allowlist, setAllowlist] = useState<AllowedModels | null>(null);
+  // Allowlist editor: checked model ids (null = dialog closed).
+  const [allowlistDraft, setAllowlistDraft] = useState<string[] | null>(null);
+  const [savingAllowlist, setSavingAllowlist] = useState(false);
+  // The live id may come from the backend (GET /health) and not exist in
+  // the list — never silently fall back to a wrong preset entry.
+  // When the current id isn't in the list, surface it at the top as-is so
+  // the active model stays visible and re-selectable. No presets: the list
+  // is only ever the live catalog (aggregated connections / allowlist).
+  const models: ChatModel[] = useMemo(() => {
+    const base = sourceModels ?? [];
+    if (base.some((m) => m.id === modelId)) {
+      return base;
+    }
+    return [
+      {
+        id: modelId,
+        name: modelId,
+        description: "Model reported by the backend — not in the list",
+      },
+      ...base,
+    ];
+  }, [modelId, sourceModels]);
+
+  useEffect(() => {
+    setModelId(settings.model);
+  }, [settings.model]);
+
+  // Options of the allowlist editor: every discovered model id (from all
+  // saved connections) plus the currently-allowed ids that are no longer in
+  // the catalog, so saving never silently drops them.
+  const allowlistOptions: Array<{ id: string; source: string }> =
+    useMemo(() => {
+      const options: Array<{ id: string; source: string }> = [];
+      const seen = new Set<string>();
+      for (const source of sources ?? []) {
+        const prefix = source.base_url?.includes(
+          "generativelanguage.googleapis.com",
+        )
+          ? "google_genai"
+          : "openai";
+        for (const model of source.models) {
+          const id = `${prefix}:${model.id}`;
+          if (seen.has(id)) {
+            continue;
+          }
+          seen.add(id);
+          options.push({ id, source: source.connection });
+        }
+      }
+      for (const id of allowlist?.models ?? []) {
+        if (!seen.has(id)) {
+          seen.add(id);
+          options.push({ id, source: "allowed — not in the current catalog" });
+        }
+      }
+      return options;
+    }, [allowlist, sources]);
+
+  const save = async () => {
+    setSettings((current) => ({ ...current, model: modelId }));
+    // The backend's builtin default agent serves the default llm
+    // connection's extra.model (agent configs are the source of truth —
+    // the chat body's selectedChatModel is informational). As admin,
+    // apply the picked model to the default llm connection so the choice
+    // actually takes effect; the backend rebuilds agent graphs on
+    // connection mutations, so it applies on the next run.
+    if (isAdmin && modelId !== settings.model) {
+      let defaultLlm: BackendConnection | undefined;
+      try {
+        const list = await fetchConnections();
+        defaultLlm = list.find(
+          (connection) => connection.kind === "llm" && connection.isDefault,
+        );
+      } catch {
+        // Backend offline — skip the connection apply.
+      }
+      if (defaultLlm) {
+        try {
+          await updateConnection(defaultLlm.name, {
+            baseUrl: defaultLlm.baseUrl ?? undefined,
+            // Full replace — carry provider options and keep the stored
+            // token; extra.model is what the builtin agent resolves.
+            extra: { ...defaultLlm.extra, model: modelId },
+            isDefault: true,
+            kind: "llm",
+            name: defaultLlm.name,
+          });
+        } catch (error) {
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : "Failed to apply the model to the default connection",
+          );
+          return;
+        }
+        toast.success(
+          `Model set to ${modelId} — the default llm connection now serves it`,
+        );
+        return;
+      }
+      toast.success(
+        `Model set to ${modelId} (saved locally — no default llm connection yet)`,
+      );
+      return;
+    }
+    toast.success(`Model set to ${modelId}`);
+  };
+
+  // The global allowlist (admin-managed, role-based): fetch on mount and
+  // whenever settings change (connections added/removed alter the ids).
+  useEffect(() => {
+    if (!isAdmin) {
+      return;
+    }
+    let cancelled = false;
+    fetchAllowedModels()
+      .then((next) => {
+        if (!cancelled) {
+          setAllowlist(next);
+        }
+      })
+      .catch(() => {
+        // Backend offline — leave the list empty.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isAdmin]);
+
+  const refreshAllowlist = async () => {
+    try {
+      setAllowlist(await fetchAllowedModels());
+    } catch {
+      // Backend offline — keep the cached list.
+    }
+  };
+
+  const openAllowlistEditor = () => {
+    setAllowlistDraft([...(allowlist?.models ?? [])]);
+  };
+
+  const saveAllowlist = async () => {
+    if (!allowlistDraft) {
+      return;
+    }
+    setSavingAllowlist(true);
+    try {
+      const next = await updateAllowedModels(allowlistDraft);
+      setAllowlist(next);
+      setAllowlistDraft(null);
+      toast.success(
+        next.models.length === 0
+          ? "Allowlist saved — user accounts can no longer pick models"
+          : `Allowlist saved — ${next.models.length} model(s) allowed for user accounts`,
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to save the allowlist",
+      );
+    } finally {
+      setSavingAllowlist(false);
+    }
+  };
+
+  const removeAllowlist = async () => {
+    try {
+      await clearAllowedModels();
+      await refreshAllowlist();
+      toast.success("Restriction removed — every model is allowed again");
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Failed to remove the restriction",
+      );
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-4">
       {isAdmin && (
         <Card className="flex flex-col gap-4">
           <div className="flex items-center justify-between gap-4">
@@ -1889,9 +2045,6 @@ function ModelTab({
         <Button onClick={save}>Save model</Button>
       </div>
 
-      {/* Global model allowlist editor: which models user-role accounts may
-          use. Options come from the aggregated catalog (every saved llm
-          connection's /models endpoint) + the currently-allowed ids. */}
       <Dialog
         open={allowlistDraft !== null}
         onOpenChange={(open) => {
@@ -1963,160 +2116,9 @@ function ModelTab({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      <Dialog
-        open={draft !== null}
-        onOpenChange={(open) => {
-          if (!open) {
-            setEditing(null);
-            setDraft(null);
-            setTestResult(null);
-          }
-        }}
-      >
-        <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>
-              {editing ? `Edit ${editing.name}` : "New connection"}
-            </DialogTitle>
-          </DialogHeader>
-          <FieldGroup>
-            <Field>
-              <FieldLabel htmlFor="connection-name">Name</FieldLabel>
-              <Input
-                disabled={editing !== null}
-                id="connection-name"
-                onChange={(event) =>
-                  setDraft((current) =>
-                    current
-                      ? { ...current, name: event.target.value }
-                      : current,
-                  )
-                }
-                placeholder="e.g. my-vllm"
-                value={draft?.name ?? ""}
-              />
-              <FieldDescription>
-                Lowercase letters, numbers, dots/underscores/hyphens.
-              </FieldDescription>
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="connection-base-url">Base URL</FieldLabel>
-              <Input
-                id="connection-base-url"
-                onChange={(event) =>
-                  setDraft((current) =>
-                    current
-                      ? { ...current, baseUrl: event.target.value }
-                      : current,
-                  )
-                }
-                placeholder="https://your-endpoint/v1"
-                value={draft?.baseUrl ?? ""}
-              />
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="connection-api-token">API token</FieldLabel>
-              <Input
-                id="connection-api-token"
-                onChange={(event) =>
-                  setDraft((current) =>
-                    current
-                      ? { ...current, apiToken: event.target.value }
-                      : current,
-                  )
-                }
-                placeholder={
-                  editing?.hasToken
-                    ? "Leave empty to keep the stored token"
-                    : "sk-…"
-                }
-                type="password"
-                value={draft?.apiToken ?? ""}
-              />
-              <FieldDescription>
-                Write-only; empty keeps the stored token when editing.
-              </FieldDescription>
-            </Field>
-            <Field>
-              <div className="flex items-center justify-between gap-4">
-                <div className="flex flex-col gap-0.5">
-                  <span className="text-sm font-medium">
-                    Default connection
-                  </span>
-                  <span className="text-[13px] text-muted-foreground">
-                    The default connection serves chat.
-                  </span>
-                </div>
-                <Switch
-                  checked={Boolean(draft?.isDefault)}
-                  onCheckedChange={(checked) =>
-                    setDraft((current) =>
-                      current ? { ...current, isDefault: checked } : current,
-                    )
-                  }
-                  aria-label="Default connection"
-                />
-              </div>
-            </Field>
-          </FieldGroup>
-          <DialogFooter>
-            <div className="mr-auto flex items-center gap-3">
-              <Button
-                disabled={testing}
-                onClick={testDraftConnection}
-                type="button"
-                variant="outline"
-              >
-                {testing ? "Testing…" : "Test connection"}
-              </Button>
-              {testResult && (
-                <span
-                  className={cn(
-                    "flex items-center gap-1.5 text-[13px]",
-                    testResult.ok
-                      ? "text-muted-foreground"
-                      : "text-destructive",
-                  )}
-                >
-                  {testResult.ok ? (
-                    <CircleCheckIcon className="size-4 shrink-0" />
-                  ) : (
-                    <TriangleAlertIcon className="size-4 shrink-0" />
-                  )}
-                  {testResult.message}
-                </span>
-              )}
-            </div>
-            <Button
-              onClick={() => {
-                setEditing(null);
-                setDraft(null);
-                setTestResult(null);
-              }}
-              type="button"
-              variant="outline"
-            >
-              Cancel
-            </Button>
-            <Button
-              disabled={savingConnection}
-              onClick={saveConnectionEditor}
-              type="button"
-            >
-              {savingConnection
-                ? "Saving…"
-                : editing
-                  ? "Save connection"
-                  : "Create connection"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
-
 // --- Page ---------------------------------------------------------------------
 
 export default function SettingsPage() {
@@ -2271,6 +2273,11 @@ export default function SettingsPage() {
                 setSettings={update}
               />
             </TabsContent>
+            {user?.role === "admin" && (
+              <TabsContent value="connections">
+                <ConnectionsTab />
+              </TabsContent>
+            )}
             <TabsContent value="model">
               <ModelTab
                 isAdmin={isAdmin}

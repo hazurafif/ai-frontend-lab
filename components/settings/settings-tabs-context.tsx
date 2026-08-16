@@ -2,6 +2,7 @@
 
 import {
   BotIcon,
+  CableIcon,
   DatabaseIcon,
   type LucideIcon,
   PuzzleIcon,
@@ -14,6 +15,7 @@ import { createContext, useContext, useState } from "react";
 
 export type SettingsTabId =
   | "general"
+  | "connections"
   | "model"
   | "skills"
   | "tools"
@@ -29,6 +31,7 @@ export type SettingsTab = {
 
 export const SETTINGS_TABS: SettingsTab[] = [
   { id: "general", label: "General", icon: SlidersHorizontalIcon },
+  { id: "connections", label: "Connections", icon: CableIcon },
   { id: "model", label: "Model", icon: BotIcon },
   { id: "skills", label: "Skills", icon: WrenchIcon },
   { id: "tools", label: "Tools", icon: PuzzleIcon },
@@ -48,7 +51,7 @@ export const SETTINGS_TAB_CATEGORIES: SettingsTabCategory[] = [
   {
     id: "preferences",
     label: "Preferences",
-    tabIds: ["general", "model"],
+    tabIds: ["general", "connections", "model"],
   },
   {
     id: "agent",
@@ -64,11 +67,15 @@ export const SETTINGS_TAB_CATEGORIES: SettingsTabCategory[] = [
 
 // MCP tool servers are per-user on the backend now (each user brings their
 // own, CRUD at /mcp/servers) — the Tools tab is available to everyone.
-// Skills mutations and users are still admin-only on the backend.
+// Connections (admin credentials), skills mutations and users are still
+// admin-only on the backend.
 export function settingsTabsForRole(role?: string): SettingsTab[] {
   return role === "admin"
     ? SETTINGS_TABS
-    : SETTINGS_TABS.filter((tab) => tab.id !== "skills" && tab.id !== "users");
+    : SETTINGS_TABS.filter(
+        (tab) =>
+          tab.id !== "skills" && tab.id !== "users" && tab.id !== "connections",
+      );
 }
 
 // The same role-filtered tabs, grouped into labeled categories (empty
