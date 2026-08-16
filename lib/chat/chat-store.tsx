@@ -228,23 +228,55 @@ export function ThreadsProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  // Dedupe by event_id, NOT by seq. The backend's notification seq is an
+  // in-process counter (notification_hub.py) that resets on restart, while
+  // the client persists the cursor in localStorage — after a backend
+  // restart, fresh events carry low seqs again and seq-based dedupe would
+  // silently drop EVERY event until the counter caught up (stale sidebar,
+  // dead run statuses). event_id is a per-publish uuid, unique across
+  // restarts, so it stays a reliable dedupe key.
+  const seenEventIdsRef = useRef(new Set<string>());
+  const dedupeNotification = useCallback((eventId: string): boolean => {
+    const seen = seenEventIdsRef.current;
+    if (seen.has(eventId)) {
+      return true;
+    }
+    // Bound the set (best-effort: the replay window only holds the most
+    // recent events anyway, so an evicted id can't re-appear in practice).
+    if (seen.size >= NOTIFICATIONS_CAP * 2) {
+      const oldest = seen.values().next().value;
+      if (oldest !== undefined) {
+        seen.delete(oldest);
+      }
+    }
+    seen.add(eventId);
+    return false;
+  }, []);
+
   const applyNotification = useCallback(
     (notification: ThreadNotification, options?: { silent?: boolean }) => {
-      // Dedupe + advance the cursor (stream replay and the REST catch-up
-      // may deliver the same event twice).
-      const seq = notification.seq;
-      if (!Number.isFinite(seq) || seq <= lastSeqRef.current) {
+      // Stream replay and the REST catch-up may deliver the same event
+      // twice — event_id dedupe covers both.
+      if (!notification.event_id || dedupeNotification(notification.event_id)) {
         return;
+      }
+      // Cursor: advance on new events; heal downward when the backend's
+      // seq restarted (an unseen event with a lower seq is fresh, not a
+      // replay — replays are deduped above by event_id). Keeping the
+      // cursor in sync also keeps the stream's ?since= reconnect skip
+      // correct after a restart.
+      const seq = notification.seq;
+      if (Number.isFinite(seq) && seq !== lastSeqRef.current) {
+        lastSeqRef.current = seq;
+        setLastSeq(seq);
+        if (username) {
+          saveSeq(username, seq);
+        }
       }
       // Any lifecycle event means the backend run machinery is live for
       // this thread again — clear the stale marker so seedThreads trusts
       // the server status once more.
       staleThreadsRef.current.delete(notification.thread_id);
-      lastSeqRef.current = seq;
-      setLastSeq(seq);
-      if (username) {
-        saveSeq(username, seq);
-      }
 
       setStatuses((current) => ({
         ...current,

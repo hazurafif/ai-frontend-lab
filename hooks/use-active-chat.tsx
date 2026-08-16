@@ -543,13 +543,22 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
   // Persist messages after streaming finishes (and on any non-streaming
   // change). Signed-in: server-only — the backend writes finalized messages
   // incrementally, so nothing is mirrored to localStorage (and the local
-  // mirror is never read). Guest: the localStorage cache stays.
+  // mirror is never read); when a run ends, nudge the sidebar to refetch
+  // (covers a missed completion notification while the SSE stream is down).
+  // Guest: the localStorage cache stays.
   const prevStatusRef = useRef(status);
   useEffect(() => {
     const statusChanged = prevStatusRef.current !== status;
     prevStatusRef.current = status;
 
-    if (status === "streaming" || isAuthenticated) {
+    if (status === "streaming") {
+      return;
+    }
+
+    if (isAuthenticated) {
+      if (statusChanged && (status === "ready" || status === "error")) {
+        notifyHistoryChanged();
+      }
       return;
     }
 
