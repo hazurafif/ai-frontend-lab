@@ -28,6 +28,7 @@ export function ChatShell() {
     sendMessage,
     status,
     stop,
+    abortStream,
     regenerate,
     input,
     setInput,
@@ -99,17 +100,14 @@ export function ChatShell() {
 
   const isNewChat = mounted && messages.length === 0 && !isLoading;
 
-  const stopRef = useRef(stop);
-  stopRef.current = stop;
-
   const prevChatIdRef = useRef(chatId);
   useEffect(() => {
     if (prevChatIdRef.current !== chatId) {
       prevChatIdRef.current = chatId;
-      stopRef.current();
+      abortStream();
       setEditingMessage(null);
     }
-  }, [chatId]);
+  }, [chatId, abortStream]);
 
   const handleEditMessage = useCallback(
     (msg: ChatMessage) => {
@@ -121,6 +119,14 @@ export function ChatShell() {
       setEditingMessage(msg);
     },
     [setInput],
+  );
+
+  // Stable callback: passed into memoized PreviewMessage rows (rewind
+  // arrows on user messages); an inline arrow would re-render every row
+  // on every streaming flush.
+  const handleRewind = useCallback(
+    (message: ChatMessage) => rewindMessage(message.id),
+    [rewindMessage],
   );
 
   const handleCancelEdit = useCallback(() => {
@@ -180,7 +186,7 @@ export function ChatShell() {
           isLoading={isLoading}
           messages={messages}
           onEditMessage={handleEditMessage}
-          onRewind={(message) => rewindMessage(message.id)}
+          onRewind={handleRewind}
           onSendPrompt={(prompt) =>
             sendMessage({
               parts: [{ text: prompt, type: "text" }],

@@ -55,6 +55,10 @@ type ActiveChatContextValue = {
   sendMessage: UseChatHelpers<ChatMessage>["sendMessage"];
   status: UseChatHelpers<ChatMessage>["status"];
   stop: UseChatHelpers<ChatMessage>["stop"];
+  /** Abort-only stop: closes the client fetch without cancelling the server
+   * run (durable chat). Used on chat switches / "new chat" — only the
+   * explicit Stop button uses `stop` (which also cancels the run). */
+  abortStream: () => void;
   regenerate: UseChatHelpers<ChatMessage>["regenerate"];
   /** Rewind to a past user message: drop it + everything after, restore its text in the input. */
   rewindMessage: (messageId: string) => void;
@@ -606,26 +610,35 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
     return stopRef.current();
   }, [chatId]);
 
+  // Abort-only stop for chat switches / "new chat": closes the client fetch
+  // WITHOUT cancelling the server run (durable chat). Only the explicit Stop
+  // button uses `stop` (stopGeneration), which also cancels the run.
+  const abortStream = useCallback(() => stopRef.current(), []);
+
   const isLoading = status === "submitted" || status === "streaming";
 
   // Rewind to a past user message: drop it and everything after it, and
   // put its text back into the input so the user can rephrase and resend.
   // The next send carries the truncated message list, so the backend
   // thread follows the same state (same mechanism as edits).
+  // Deliberately not depedent on `messages` (read through messagesRef):
+  // the sidebar's onRewind callback must stay referentially stable so
+  // the memoized PreviewMessage rows don't re-render on every flush.
   const rewindMessage = useCallback(
     (messageId: string) => {
-      const index = messages.findIndex((m) => m.id === messageId);
+      const list = messagesRef.current;
+      const index = list.findIndex((m) => m.id === messageId);
       if (index === -1) {
         return;
       }
-      const text = getTextFromMessage(messages[index]);
+      const text = getTextFromMessage(list[index]);
       if (text) {
         setInput(text);
       }
       stopRef.current();
-      setMessages(messages.slice(0, index));
+      setMessages(list.slice(0, index));
     },
-    [messages, setInput, setMessages],
+    [setInput, setMessages],
   );
 
   // Edit the last turn: truncate the conversation at the edited message
@@ -787,6 +800,7 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
       setMessages,
       status,
       stop: stopGeneration,
+      abortStream,
       thinkingEffortRef,
     }),
     [
@@ -807,6 +821,7 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
       setMessages,
       status,
       stopGeneration,
+      abortStream,
       thinkingEffortRef,
     ],
   );
