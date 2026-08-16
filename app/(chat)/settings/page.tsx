@@ -77,10 +77,7 @@ import {
   findChatModel,
   type ModelConnection,
 } from "@/lib/models";
-import {
-  fetchSearchPreference,
-  updateSearchPreference,
-} from "@/lib/preferences";
+import { fetchPreferences, updatePreferences } from "@/lib/preferences";
 import {
   createSkill as apiCreateSkill,
   createToolServer as apiCreateToolServer,
@@ -863,16 +860,26 @@ function GeneralTab({
 }) {
   const [prompt, setPrompt] = useState(settings.systemPrompt);
   const [searxng, setSearxng] = useState(settings.searxngEnabled);
-  // Web-search preference lives on the backend now (per-user table): the
-  // stored value wins over the local cache on load, and toggling PATCHes
-  // it live — the chat transport no longer sends enable_search.
+  // Chat display preferences (hide thinking / hide tool calls) — persisted
+  // per-user on the backend; the backend filters the stream, so toggling
+  // here PATCHes them live.
+  const [hideReasoning, setHideReasoning] = useState(false);
+  const [hideToolCalls, setHideToolCalls] = useState(false);
+  // Preferences live on the backend now (per-user table): the stored values
+  // win over the local cache on load, and toggling PATCHes them live — the
+  // chat transport no longer sends enable_search.
   useEffect(() => {
     let cancelled = false;
-    fetchSearchPreference()
-      .then((pref) => {
-        if (!cancelled && pref !== null) {
-          setSearxng(pref);
+    fetchPreferences()
+      .then((prefs) => {
+        if (!cancelled || !prefs) {
+          return;
         }
+        if (prefs.enableSearch !== null) {
+          setSearxng(prefs.enableSearch);
+        }
+        setHideReasoning(prefs.hideReasoning);
+        setHideToolCalls(prefs.hideToolCalls);
       })
       .catch(() => {});
     return () => {
@@ -932,8 +939,24 @@ function GeneralTab({
   const toggleSearch = (value: boolean) => {
     setSearxng(value);
     setSettings((current) => ({ ...current, searxngEnabled: value }));
-    updateSearchPreference(value).catch(() => {
+    updatePreferences({ enable_search: value }).catch(() => {
       toast.error("Couldn't save the web-search preference");
+    });
+  };
+
+  // Live display toggles: optimistic UI + immediate PATCH (the backend
+  // filters reasoning / tool events from the chat stream per preference).
+  const toggleHideReasoning = (value: boolean) => {
+    setHideReasoning(value);
+    updatePreferences({ hide_reasoning: value }).catch(() => {
+      toast.error("Couldn't save the display preference");
+    });
+  };
+
+  const toggleHideToolCalls = (value: boolean) => {
+    setHideToolCalls(value);
+    updatePreferences({ hide_tool_calls: value }).catch(() => {
+      toast.error("Couldn't save the display preference");
     });
   };
 
@@ -1074,6 +1097,36 @@ function GeneralTab({
             checked={searxng}
             onCheckedChange={toggleSearch}
             aria-label="Web search"
+          />
+        </div>
+      </Card>
+      <Card className="flex flex-col gap-4">
+        <span className="text-sm font-medium">Chat display</span>
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex flex-col gap-0.5">
+            <span className="text-sm font-medium">Hide thinking</span>
+            <span className="text-[13px] text-muted-foreground">
+              Don&apos;t show the model&apos;s reasoning (thinking) in the chat
+              stream.
+            </span>
+          </div>
+          <Switch
+            checked={hideReasoning}
+            onCheckedChange={toggleHideReasoning}
+            aria-label="Hide thinking"
+          />
+        </div>
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex flex-col gap-0.5">
+            <span className="text-sm font-medium">Hide tool calls</span>
+            <span className="text-[13px] text-muted-foreground">
+              Don&apos;t show tool-call activity in the chat stream.
+            </span>
+          </div>
+          <Switch
+            checked={hideToolCalls}
+            onCheckedChange={toggleHideToolCalls}
+            aria-label="Hide tool calls"
           />
         </div>
       </Card>
@@ -2043,15 +2096,13 @@ export default function SettingsPage() {
                 />
               </TabsContent>
             )}
-            {user?.role === "admin" && (
-              <TabsContent value="tools">
-                <ToolsTab
-                  settings={settings}
-                  setSettings={update}
-                  backendOnline={backendOnline}
-                />
-              </TabsContent>
-            )}
+            <TabsContent value="tools">
+              <ToolsTab
+                settings={settings}
+                setSettings={update}
+                backendOnline={backendOnline}
+              />
+            </TabsContent>
             <TabsContent value="knowledge-base">
               <KnowledgeBaseTab
                 settings={settings}

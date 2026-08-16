@@ -62,14 +62,13 @@ export const SETTINGS_TAB_CATEGORIES: SettingsTabCategory[] = [
   },
 ];
 
-// Skills, tools and users are admin-only on the backend.
+// MCP tool servers are per-user on the backend now (each user brings their
+// own, CRUD at /mcp/servers) — the Tools tab is available to everyone.
+// Skills mutations and users are still admin-only on the backend.
 export function settingsTabsForRole(role?: string): SettingsTab[] {
   return role === "admin"
     ? SETTINGS_TABS
-    : SETTINGS_TABS.filter(
-        (tab) =>
-          tab.id !== "skills" && tab.id !== "tools" && tab.id !== "users",
-      );
+    : SETTINGS_TABS.filter((tab) => tab.id !== "skills" && tab.id !== "users");
 }
 
 // The same role-filtered tabs, grouped into labeled categories (empty

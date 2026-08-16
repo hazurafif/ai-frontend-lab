@@ -153,12 +153,15 @@ export const DEFAULT_THINKING_EFFORT: ThinkingEffort = "medium";
 // runtime overrides for .env defaults:
 //
 //   execute     → { enabled, max_timeout, inherit_env }  (execute tool)
-//   connections → { fallback_env }                       (connection policy)
+//   hitl        → { interrupt_on }                       (HITL gate)
 //
-// DB rows win over .env; `source` reports which one the effective value
-// came from. Every PUT rebuilds the backend's agent graphs, so changes
-// apply on the next run without a restart. Non-admin users only ever see
-// the cached/local defaults — the endpoints are admin-only on the backend.
+// There is no env fallback for credentials: connections are the only
+// credential source (the old `connections.fallback_env` policy was removed
+// from the backend). DB rows win over .env; `source` reports which one the
+// effective value came from. Every PUT rebuilds the backend's agent graphs,
+// so changes apply on the next run without a restart. Non-admin users only
+// ever see the cached/local defaults — the endpoints are admin-only on the
+// backend.
 
 export type SettingsSource = "db" | "env";
 
@@ -168,14 +171,6 @@ export type ExecuteSettings = {
   maxTimeout: number;
   // Whether executed commands inherit the server process environment.
   inheritEnv: boolean;
-  source: SettingsSource;
-};
-
-export type ConnectionsPolicy = {
-  // Allow .env credentials when no DB connection of a kind exists.
-  // False (default) = the DB connection is mandatory: the agent LLM and KB
-  // embeddings fail loudly instead of silently reading .env keys.
-  fallbackEnv: boolean;
   source: SettingsSource;
 };
 
@@ -189,21 +184,16 @@ export type HitlSettings = {
 
 export type AppSettings = {
   execute: ExecuteSettings;
-  connections: ConnectionsPolicy;
   hitl: HitlSettings;
 };
 
 // Wire shapes — the backend returns snake_case (max_timeout, inherit_env,
-// fallback_env, interrupt_on); mapped to the camelCase AppSettings above.
+// interrupt_on); mapped to the camelCase AppSettings above.
 type AppSettingsOut = {
   execute: {
     enabled: boolean;
     max_timeout: number;
     inherit_env: boolean;
-    source: SettingsSource;
-  };
-  connections: {
-    fallback_env: boolean;
     source: SettingsSource;
   };
   hitl: {
@@ -218,7 +208,6 @@ function toAppSettings(out: AppSettingsOut): AppSettings {
   // missing value must never reach a Switch's `checked` (controlled →
   // uncontrolled React warnings).
   const execute = out.execute ?? ({} as AppSettingsOut["execute"]);
-  const connections = out.connections ?? ({} as AppSettingsOut["connections"]);
   const hitl = out.hitl ?? ({} as AppSettingsOut["hitl"]);
   return {
     execute: {
@@ -229,10 +218,6 @@ function toAppSettings(out: AppSettingsOut): AppSettings {
           ? (execute.max_timeout as number)
           : DEFAULT_SETTINGS.execute.maxTimeout,
       source: execute.source ?? "env",
-    },
-    connections: {
-      fallbackEnv: Boolean(connections.fallback_env),
-      source: connections.source ?? "env",
     },
     hitl: {
       interruptOn: hitl.interrupt_on ?? {},
@@ -245,7 +230,6 @@ export type AppSettingsPatch = {
   execute?: Partial<
     Pick<ExecuteSettings, "enabled" | "maxTimeout" | "inheritEnv">
   >;
-  connections?: Partial<Pick<ConnectionsPolicy, "fallbackEnv">>;
   hitl?: Partial<Pick<HitlSettings, "interruptOn">>;
 };
 
@@ -266,9 +250,6 @@ export async function updateAppSettings(
             max_timeout: patch.execute.maxTimeout,
             inherit_env: patch.execute.inheritEnv,
           }
-        : undefined,
-      connections: patch.connections
-        ? { fallback_env: patch.connections.fallbackEnv }
         : undefined,
       hitl: patch.hitl ? { interrupt_on: patch.hitl.interruptOn } : undefined,
     }),

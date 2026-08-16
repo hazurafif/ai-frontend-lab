@@ -1,30 +1,77 @@
 // User preferences client: server-side per-user preferences (backend
-// user_preferences table, migration 0007). The web-search toggle lives
-// here now — the backend applies the stored value to every chat request
-// unless the request carries an explicit enable_search override.
+// user_preferences table, migration 0007). The web-search toggle and the
+// chat display toggles (hide thinking / hide tool calls) live here — the
+// backend applies the stored values to every chat stream unless the request
+// carries an explicit override.
 
 import { fetchWithAuth } from "@/lib/auth";
 
-type PreferencesPayload = {
+export type PreferencesPayload = {
   enable_search?: boolean | null;
+  hide_reasoning?: boolean | null;
+  hide_tool_calls?: boolean | null;
 };
 
+export type UserPreferences = {
+  // Effective web-search preference: stored value, or null when unset
+  // (backend then falls back to its SEARXNG_ENABLED config).
+  enableSearch: boolean | null;
+  // Effective display preferences (default False = show).
+  hideReasoning: boolean;
+  hideToolCalls: boolean;
+};
+
+function toUserPreferences(data: PreferencesPayload): UserPreferences {
+  return {
+    enableSearch:
+      typeof data.enable_search === "boolean" ? data.enable_search : null,
+    hideReasoning: Boolean(data.hide_reasoning),
+    hideToolCalls: Boolean(data.hide_tool_calls),
+  };
+}
+
 /**
- * Effective web-search preference: the stored per-user value, or null
- * when unset (backend then falls back to its SEARXNG_ENABLED config).
- * Returns null on any failure — callers fall back to their local cache.
+ * Effective per-user preferences. Returns null on any failure — callers
+ * fall back to their local cache.
  */
-export async function fetchSearchPreference(): Promise<boolean | null> {
+export async function fetchPreferences(): Promise<UserPreferences | null> {
   try {
     const res = await fetchWithAuth("/api/preferences", { cache: "no-store" });
     if (!res.ok) {
       return null;
     }
-    const data = (await res.json()) as PreferencesPayload;
-    return typeof data.enable_search === "boolean" ? data.enable_search : null;
+    return toUserPreferences((await res.json()) as PreferencesPayload);
   } catch {
     return null;
   }
+}
+
+/**
+ * Persist preference keys; pass null to clear a key (reverts to the server
+ * default). The response carries the full effective state. Throws on
+ * failure so callers can surface errors.
+ */
+export async function updatePreferences(
+  patch: PreferencesPayload,
+): Promise<UserPreferences> {
+  const res = await fetchWithAuth("/api/preferences", {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(patch satisfies PreferencesPayload),
+  });
+  if (!res.ok) {
+    throw new Error(`preferences update failed: ${res.status}`);
+  }
+  return toUserPreferences((await res.json()) as PreferencesPayload);
+}
+
+/**
+ * Effective web-search preference, or null when unset. Returns null on any
+ * failure — callers fall back to their local cache.
+ */
+export async function fetchSearchPreference(): Promise<boolean | null> {
+  const prefs = await fetchPreferences();
+  return prefs?.enableSearch ?? null;
 }
 
 /**
@@ -34,12 +81,5 @@ export async function fetchSearchPreference(): Promise<boolean | null> {
 export async function updateSearchPreference(
   value: boolean | null,
 ): Promise<void> {
-  const res = await fetchWithAuth("/api/preferences", {
-    method: "PATCH",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ enable_search: value } satisfies PreferencesPayload),
-  });
-  if (!res.ok) {
-    throw new Error(`preferences update failed: ${res.status}`);
-  }
+  await updatePreferences({ enable_search: value });
 }
