@@ -1004,16 +1004,6 @@ export function MultimodalInput({
               </TooltipProvider>
             )}
 
-            {runActive && (
-              <span
-                className="flex shrink-0 items-center gap-1.5 text-[11px] text-muted-foreground"
-                title="This chat is still answering in the background"
-              >
-                <span className="size-1.5 animate-pulse rounded-full bg-foreground/60" />
-                Generating…
-              </span>
-            )}
-
             {isLoading ? (
               <Button
                 aria-label="Stop generation"
