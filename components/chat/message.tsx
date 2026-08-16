@@ -564,8 +564,12 @@ const PreviewMessage = memo(function PreviewMessage({
             {parts}
             {/* MessageFooter pattern: time + actions below the bubble,
                 aligned to its right edge (px-3.5 matches the bubble's
-                padding). Revealed on hover, like the actions. */}
-            <MessageActions className="w-full justify-end gap-2 px-3.5 pb-0.5 max-md:opacity-100 md:opacity-0 md:transition-opacity md:group-hover/message:opacity-100 md:focus-within:opacity-100">
+                padding). Always visible on touchscreens (coarse pointer:
+                tablets, phones, touch laptops); revealed on hover only
+                for mouse/trackpad — the old md-width hover-reveal never
+                fired on touch screens ≥768px wide (iPad portrait, phone
+                landscape), leaving the buttons unreachable. */}
+            <MessageActions className="w-full justify-end gap-2 px-3.5 pb-0.5 pointer-fine:opacity-0 pointer-fine:transition-opacity pointer-fine:group-hover/message:opacity-100 pointer-fine:focus-within:opacity-100">
               {sentAt && (
                 <span className="text-[11px] tabular-nums text-muted-foreground">
                   {sentAt}
