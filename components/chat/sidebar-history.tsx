@@ -32,6 +32,7 @@ import {
   SidebarMenu,
   useSidebar,
 } from "@/components/ui/sidebar";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/use-auth";
 import { useThreads } from "@/lib/chat/chat-store";
 import {
@@ -104,6 +105,8 @@ export function SidebarHistory({
   const id = pathname?.startsWith("/chat/") ? pathname.split("/")[2] : null;
 
   const [history, setHistory] = useState<ChatHistoryItem[]>([]);
+  // True while the server list is being fetched (signed-in skeleton).
+  const [loading, setLoading] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [renameTarget, setRenameTarget] = useState<ChatHistoryItem | null>(
@@ -123,6 +126,7 @@ export function SidebarHistory({
     if (!isAuthenticated) {
       return;
     }
+    setLoading(true);
     fetchThreads()
       .then((threads) => {
         // Keep the durable-chat store in sync (run statuses restore on
@@ -135,7 +139,8 @@ export function SidebarHistory({
       .catch(() => {
         // Backend unreachable — keep the last server-fetched list (never
         // fall back to the localStorage cache).
-      });
+      })
+      .finally(() => setLoading(false));
   }, [isAuthenticated, seedThreads]);
 
   useEffect(() => {
@@ -246,6 +251,10 @@ export function SidebarHistory({
   // Filter by title when the sidebar search is active; the date groups are
   // kept so matching chats still read as a timeline.
   const query = searchQuery.trim().toLowerCase();
+  // Signed-in initial load: the server fetch is in flight and there is
+  // nothing to show yet — render skeleton rows instead of the empty state.
+  const showSkeleton =
+    isAuthenticated && loading && history.length === 0 && !query;
   const visibleHistory = query
     ? history.filter((chat) => chat.title.toLowerCase().includes(query))
     : history;
@@ -258,7 +267,26 @@ export function SidebarHistory({
           History
         </SidebarGroupLabel>
         <SidebarGroupContent>
-          {visibleHistory.length === 0 ? (
+          {showSkeleton ? (
+            <div
+              aria-busy="true"
+              aria-label="Loading conversations"
+              className="flex flex-col gap-0.5 px-1"
+              role="status"
+            >
+              {Array.from({ length: 6 }).map((_, index) => (
+                <div className="flex items-center gap-2 py-1.5" key={index}>
+                  <Skeleton className="size-3.5 shrink-0 rounded-sm" />
+                  <Skeleton
+                    className="h-3"
+                    style={{
+                      width: `${85 - ((index * 13) % 30)}%`,
+                    }}
+                  />
+                </div>
+              ))}
+            </div>
+          ) : visibleHistory.length === 0 ? (
             <div className="flex w-full flex-row items-center justify-center gap-2 px-2 text-[13px] text-sidebar-foreground/60">
               {query
                 ? "No chats match your search."
