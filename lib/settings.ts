@@ -305,9 +305,58 @@ export type ConnectionInput = {
   isDefault?: boolean;
 };
 
+// Wire shapes — the backend's ConnectionOut/ConnectionIn are snake_case
+// (base_url, api_token, has_token, is_default, ...); mapped to/from the
+// camelCase types above.
+type BackendConnectionOut = {
+  id: string;
+  name: string;
+  kind: ConnectionKind;
+  base_url: string | null;
+  api_token: string | null;
+  has_token: boolean;
+  extra: Record<string, unknown>;
+  is_default: boolean;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+function backendConnectionToConnection(
+  out: BackendConnectionOut,
+): BackendConnection {
+  return {
+    id: out.id,
+    name: out.name,
+    kind: out.kind,
+    baseUrl: out.base_url,
+    apiToken: out.api_token,
+    hasToken: out.has_token,
+    extra: out.extra ?? {},
+    isDefault: out.is_default,
+    createdAt: out.created_at,
+    updatedAt: out.updated_at,
+  };
+}
+
+// Outgoing payload: the backend's ConnectionIn is snake_case. An empty
+// apiToken maps to null — the backend's PUT keeps the stored token for any
+// falsy value (write-only), and creates simply store null.
+function connectionInputPayload(input: ConnectionInput) {
+  return {
+    name: input.name,
+    kind: input.kind,
+    base_url: input.baseUrl?.trim() || null,
+    api_token: input.apiToken?.trim() || null,
+    extra: input.extra ?? {},
+    is_default: input.isDefault ?? false,
+  };
+}
+
 export async function fetchConnections(): Promise<BackendConnection[]> {
   const res = await adminFetch("/connections");
-  return (await res.json()) as BackendConnection[];
+  return ((await res.json()) as BackendConnectionOut[]).map(
+    backendConnectionToConnection,
+  );
 }
 
 export async function createConnection(
@@ -315,9 +364,11 @@ export async function createConnection(
 ): Promise<BackendConnection> {
   const res = await adminFetch("/connections", {
     method: "POST",
-    body: JSON.stringify(input),
+    body: JSON.stringify(connectionInputPayload(input)),
   });
-  return (await res.json()) as BackendConnection;
+  return backendConnectionToConnection(
+    (await res.json()) as BackendConnectionOut,
+  );
 }
 
 export async function updateConnection(
@@ -326,15 +377,90 @@ export async function updateConnection(
 ): Promise<BackendConnection> {
   const res = await adminFetch(`/connections/${encodeURIComponent(name)}`, {
     method: "PUT",
-    body: JSON.stringify(input),
+    body: JSON.stringify(connectionInputPayload(input)),
   });
-  return (await res.json()) as BackendConnection;
+  return backendConnectionToConnection(
+    (await res.json()) as BackendConnectionOut,
+  );
 }
 
 export async function deleteConnection(name: string): Promise<void> {
   await adminFetch(`/connections/${encodeURIComponent(name)}`, {
     method: "DELETE",
   });
+}
+
+// --- Model catalog + allowlist (new flow) -----------------------------------
+//
+// The model picker is populated from every saved `llm` connection:
+// `GET /connections/models` queries each source's OpenAI-compatible
+// /models endpoint server-side (auth from the connection's token) and
+// returns the lists grouped per source, with per-source `error` reporting
+// when an endpoint fails. Admin-only.
+
+// One source's model list as returned by the backend (raw ids — the
+// frontend maps them to `provider:model` picker ids).
+export type BackendModelsSource = {
+  connection: string;
+  base_url: string | null;
+  is_default: boolean;
+  models: Array<{
+    id: string;
+    created: number | null;
+    owned_by: string | null;
+  }>;
+  error: string | null;
+};
+
+export async function fetchConnectionModels(): Promise<BackendModelsSource[]> {
+  const res = await adminFetch("/connections/models");
+  return (await res.json()) as BackendModelsSource[];
+}
+
+// Global model allowlist (admin-managed, role-based): the `restricted`
+// flag plus the allowed model ids (`provider:model` form, as shown by
+// GET /connections/models). Applies to every `user`-role account — admins
+// are never restricted (their view always reports restricted=false); an
+// empty allowed list = allow none. DELETE removes the restriction.
+export type AllowedModels = {
+  restricted: boolean;
+  models: string[];
+};
+
+export async function fetchAllowedModels(): Promise<AllowedModels> {
+  const res = await adminFetch("/auth/allowed-models");
+  return (await res.json()) as AllowedModels;
+}
+
+export async function updateAllowedModels(
+  models: string[],
+): Promise<AllowedModels> {
+  const res = await adminFetch("/auth/allowed-models", {
+    method: "PUT",
+    body: JSON.stringify({ models }),
+  });
+  return (await res.json()) as AllowedModels;
+}
+
+export async function clearAllowedModels(): Promise<void> {
+  await adminFetch("/auth/allowed-models", { method: "DELETE" });
+}
+
+// The caller's own effective restriction (any signed-in user, role-aware):
+// used to filter the model picker. Null when the backend is unreachable —
+// callers must NOT restrict then (an offline backend never blocks picks).
+export async function fetchMyAllowedModels(): Promise<AllowedModels | null> {
+  try {
+    const res = await fetchWithAuth("/api/auth/users/me/allowed-models", {
+      cache: "no-store",
+    });
+    if (!res.ok) {
+      return null;
+    }
+    return (await res.json()) as AllowedModels;
+  } catch {
+    return null;
+  }
 }
 
 export type SettingsState = {
@@ -369,7 +495,7 @@ export type SettingsState = {
 export const SETTINGS_STORAGE_KEY = "app-settings";
 
 // Model ids before the backend's `provider:model` convention; kept so stored
-// settings from older versions still resolve to a model in chatModels.
+// settings from older versions still resolve to a provider-prefixed id.
 const LEGACY_MODEL_IDS: Record<string, string> = {
   "gpt-4o-mini": "openai:gpt-4o-mini",
   "gpt-4o": "openai:gpt-4o",

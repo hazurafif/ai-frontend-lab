@@ -66,7 +66,6 @@ import {
 import { useAvailableModels } from "@/hooks/use-available-models";
 import { useThreads } from "@/lib/chat/chat-store";
 import { THREAD_ACTIVITY_EVENT } from "@/lib/constants";
-import { chatModelName, chatModels } from "@/lib/models";
 import {
   type BackendToolServer,
   fetchBackendHealth,
@@ -569,11 +568,11 @@ export function MultimodalInput({
   // loading or when the fetch fails → fall back to the built-in list.
   const sourceModels = useAvailableModels();
 
-  // The live list plus the current model when it isn't listed (e.g. the
-  // backend reports a DEEPAGENTS_MODEL the source doesn't serve), so the
-  // selected model is always representable in the menu.
+  // The live list plus the current model when it isn't listed, so the
+  // selected model is always representable in the menu. No presets: the
+  // list is only ever the live catalog (connections / allowlist).
   const models = useMemo(() => {
-    const base = sourceModels ?? chatModels;
+    const base = sourceModels ?? [];
     if (base.some((m) => m.id === selectedModelId)) {
       return base;
     }
@@ -588,9 +587,7 @@ export function MultimodalInput({
   }, [selectedModelId, sourceModels]);
 
   const selectedModelName = useMemo(
-    () =>
-      models.find((m) => m.id === selectedModelId)?.name ??
-      chatModelName(selectedModelId),
+    () => models.find((m) => m.id === selectedModelId)?.name ?? selectedModelId,
     [models, selectedModelId],
   );
 
