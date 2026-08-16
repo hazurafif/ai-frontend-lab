@@ -292,6 +292,7 @@ export type BackendConnection = {
   hasToken: boolean;
   extra: Record<string, unknown>;
   isDefault: boolean;
+  enabled: boolean;
   createdAt: string | null;
   updatedAt: string | null;
 };
@@ -303,6 +304,7 @@ export type ConnectionInput = {
   apiToken?: string;
   extra?: Record<string, unknown>;
   isDefault?: boolean;
+  enabled?: boolean;
 };
 
 // Wire shapes — the backend's ConnectionOut/ConnectionIn are snake_case
@@ -317,6 +319,7 @@ type BackendConnectionOut = {
   has_token: boolean;
   extra: Record<string, unknown>;
   is_default: boolean;
+  enabled: boolean;
   created_at: string | null;
   updated_at: string | null;
 };
@@ -333,6 +336,8 @@ function backendConnectionToConnection(
     hasToken: out.has_token,
     extra: out.extra ?? {},
     isDefault: out.is_default,
+    // Older backends without the field report true (everything was enabled).
+    enabled: out.enabled ?? true,
     createdAt: out.created_at,
     updatedAt: out.updated_at,
   };
@@ -349,6 +354,7 @@ function connectionInputPayload(input: ConnectionInput) {
     api_token: input.apiToken?.trim() || null,
     extra: input.extra ?? {},
     is_default: input.isDefault ?? false,
+    enabled: input.enabled ?? true,
   };
 }
 
