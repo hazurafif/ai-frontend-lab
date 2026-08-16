@@ -914,6 +914,8 @@ function GeneralTab({
     const execute = settings.execute ?? DEFAULT_SETTINGS.execute;
     setPrompt(settings.systemPrompt);
     setSearxng(settings.searxngEnabled);
+    setHideReasoning(Boolean(settings.hideReasoning));
+    setHideToolCalls(Boolean(settings.hideToolCalls));
     setExecuteEnabled(Boolean(execute.enabled));
     setExecuteTimeout(String(execute.maxTimeout));
     setExecuteInheritEnv(Boolean(execute.inheritEnv));
@@ -921,6 +923,8 @@ function GeneralTab({
   }, [
     settings.systemPrompt,
     settings.searxngEnabled,
+    settings.hideReasoning,
+    settings.hideToolCalls,
     settings.execute,
     settings.hitlInterruptOn,
   ]);
@@ -945,9 +949,12 @@ function GeneralTab({
   };
 
   // Live display toggles: optimistic UI + immediate PATCH (the backend
-  // filters reasoning / tool events from the chat stream per preference).
+  // filters reasoning / tool events from the chat stream per preference)
+  // + a local mirror so the message renderer's client-side filter reacts
+  // instantly (SETTINGS_CHANGED_EVENT).
   const toggleHideReasoning = (value: boolean) => {
     setHideReasoning(value);
+    setSettings((current) => ({ ...current, hideReasoning: value }));
     updatePreferences({ hide_reasoning: value }).catch(() => {
       toast.error("Couldn't save the display preference");
     });
@@ -955,6 +962,7 @@ function GeneralTab({
 
   const toggleHideToolCalls = (value: boolean) => {
     setHideToolCalls(value);
+    setSettings((current) => ({ ...current, hideToolCalls: value }));
     updatePreferences({ hide_tool_calls: value }).catch(() => {
       toast.error("Couldn't save the display preference");
     });

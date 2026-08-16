@@ -25,6 +25,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { useDisplayPreferences } from "@/hooks/use-display-preferences";
 import { extractPrefabPayload } from "@/lib/prefab";
 import type { ChatMessage } from "@/lib/types";
 import { cn, copyText, getTextFromMessage, sanitizeText } from "@/lib/utils";
@@ -219,6 +220,13 @@ function PreviewMessage({
   // A run is in flight while the status is submitted/streaming.
   const isStreaming = status === "submitted" || status === "streaming";
 
+  // Client-side display filter (Settings → General → Chat display): the
+  // backend only applies these to the attach stream, not the /api/chat
+  // stream, so the renderer hides reasoning / tool cards uniformly across
+  // every part source (live, attach, rehydrated history). Part data stays
+  // intact — citation sources are still extracted from web_search outputs.
+  const { hideReasoning, hideToolCalls } = useDisplayPreferences();
+
   // Rewind confirmation: the action drops this message and everything after
   // it — not undoable, so confirm first.
   const [rewindConfirm, setRewindConfirm] = useState(false);
@@ -298,6 +306,10 @@ function PreviewMessage({
     const { type } = part;
 
     if (type === "reasoning") {
+      // Hidden by the display preference — the data stays for history.
+      if (hideReasoning) {
+        return null;
+      }
       if (!mergedReasoning.rendered && mergedReasoning.text) {
         mergedReasoning.rendered = true;
         return (
@@ -380,6 +392,12 @@ function PreviewMessage({
     }
 
     if (type.startsWith("tool-")) {
+      // Hidden by the display preference (tool-call cards). web_search
+      // outputs are still parsed for inline citations above — only the
+      // card is suppressed.
+      if (hideToolCalls) {
+        return null;
+      }
       // Tool call card: name, status badge, input/output (AI SDK tool
       // parts) — or the inline Prefab app block when the tool returned one.
       return <ToolPart key={key} part={part as unknown as ToolUIPart} />;

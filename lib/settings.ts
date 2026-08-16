@@ -356,6 +356,11 @@ export type SettingsState = {
   // Tool name -> pause for human approval (execute, edit_file, write_file).
   // Empty = human-in-the-loop off.
   hitlInterruptOn: Record<string, boolean>;
+  // Chat display preferences (server-persisted per-user; mirrored locally
+  // so the message renderer can filter live): hide the model's reasoning
+  // and/or tool-call cards in the chat stream.
+  hideReasoning: boolean;
+  hideToolCalls: boolean;
   skills: Skill[];
   tools: ToolConfig[];
   knowledgeBases: KnowledgeBase[];
@@ -383,6 +388,8 @@ export const DEFAULT_SETTINGS: SettingsState = {
   // EXECUTE_INHERIT_ENV=false); HITL off by default.
   execute: { enabled: false, maxTimeout: 3600, inheritEnv: false },
   hitlInterruptOn: {},
+  hideReasoning: false,
+  hideToolCalls: false,
   skills: [
     {
       name: "code-review",
@@ -447,6 +454,8 @@ export function loadSettings(): SettingsState {
         (migratedInterruptOn
           ? { edit_file: true, write_file: true }
           : DEFAULT_SETTINGS.hitlInterruptOn),
+      hideReasoning: Boolean(parsed.hideReasoning),
+      hideToolCalls: Boolean(parsed.hideToolCalls),
       skills: (parsed.skills ?? DEFAULT_SETTINGS.skills).map(migrateSkill),
       tools: (parsed.tools ?? DEFAULT_SETTINGS.tools).map(migrateTool),
       knowledgeBases: (parsed.knowledgeBases ?? []).map(migrateKnowledgeBase),
