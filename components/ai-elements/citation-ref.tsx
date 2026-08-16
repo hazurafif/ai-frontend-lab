@@ -30,8 +30,11 @@ import {
  * - Raw HTML is parsed (rehype-raw) and sanitized; a tag survives only if
  *   listed in `allowedTags`, and `data-*` attributes need the special
  *   `data*` entry (hast-util-sanitize treats them separately).
- * - rehype-raw camelCases the attribute: `<cite-ref data-n="1"/>` arrives
- *   with `data-n` (in props) / `dataN` (in `node.properties`).
+ * - rehype-raw camelCases the attribute: `<cite-ref data-n="1"></cite-ref>`
+ *   arrives with `data-n` (in props) / `dataN` (in `node.properties`).
+ * - The marker must be an EXPLICIT open/close pair: the markdown parser
+ *   treats a self-closing `<cite-ref …/>` as an unterminated opening tag
+ *   and swallows the rest of the paragraph.
  */
 
 export type SearchSource = {
@@ -131,7 +134,7 @@ function replaceMarkersInLine(line: string): string {
     if (before === "(" || after === "(") {
       return marker;
     }
-    return `<${SOURCE_TAG} data-n="${n}"/>`;
+    return `<${SOURCE_TAG} data-n="${n}"></${SOURCE_TAG}>`;
   });
   return replaced.replace(/\u0000(\d+)\u0000/g, (_, index: string) => {
     return spans[Number(index)] ?? "";
