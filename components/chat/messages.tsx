@@ -11,11 +11,13 @@ import {
   MessageScrollerProvider,
   MessageScrollerViewport,
 } from "@/components/ui/message-scroller";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/use-auth";
 import { updateHistoryTitle } from "@/lib/chat/history";
 import { storageScope } from "@/lib/storage";
 import { fetchThreadFollowUps } from "@/lib/threads";
 import type { ChatMessage } from "@/lib/types";
+import { cn } from "@/lib/utils";
 import { Greeting } from "./greeting";
 import { PreviewMessage } from "./message";
 
@@ -23,6 +25,9 @@ type MessagesProps = {
   chatId: string;
   /** True when ChatShell renders the centered new-chat composer (greeting + input). */
   empty?: boolean;
+  /** True while the opened chat's history is fetched from the server —
+   * render a skeleton instead of the greeting. */
+  historyLoading?: boolean;
   status: UseChatHelpers<ChatMessage>["status"];
   messages: ChatMessage[];
   regenerate: UseChatHelpers<ChatMessage>["regenerate"];
@@ -33,9 +38,76 @@ type MessagesProps = {
   onSendPrompt?: (text: string) => void;
 };
 
+/** Placeholder conversation shown while a chat's history loads from the
+ * server: mirrors the real message flow (assistant avatar + answer lines
+ * alternating with right-aligned user bubbles of varying widths) and stays
+ * anchored at the bottom, where the latest messages appear. */
+const SKELETON_ROWS: Array<{
+  role: "user" | "assistant";
+  /** Answer text lines for assistant rows. */
+  lines?: number;
+  /** Bubble width for user rows. */
+  bubble?: string;
+}> = [
+  { role: "assistant", lines: 3 },
+  { role: "user", bubble: "w-[min(55%,320px)]" },
+  { role: "assistant", lines: 2 },
+  { role: "user", bubble: "w-[min(35%,220px)]" },
+  { role: "assistant", lines: 3 },
+  { role: "user", bubble: "w-[min(48%,280px)]" },
+];
+
+function HistoryLoadingSkeleton() {
+  return (
+    <div
+      className="pointer-events-none absolute inset-0 z-10 flex flex-col justify-end"
+      role="status"
+      aria-live="polite"
+    >
+      <span className="sr-only">Loading conversation…</span>
+      <div
+        aria-hidden="true"
+        className="mx-auto flex w-full max-w-4xl flex-col gap-4 px-3 pt-4 pb-2 md:px-4"
+      >
+        {SKELETON_ROWS.map((row, index) =>
+          row.role === "assistant" ? (
+            <div className="flex items-start gap-3" key={index}>
+              <div className="hidden h-[calc(13px*1.65)] shrink-0 items-center md:flex">
+                <Skeleton className="motion-reduce:animate-none size-7 rounded-lg" />
+              </div>
+              <div className="flex min-w-0 flex-1 flex-col gap-2">
+                {Array.from({ length: row.lines ?? 2 }).map((_, line) => (
+                  <Skeleton
+                    className={cn(
+                      "motion-reduce:animate-none h-3.5 rounded-full",
+                      // Last line shorter — mimics a natural answer.
+                      line === (row.lines ?? 2) - 1 && "w-3/5",
+                    )}
+                    key={line}
+                  />
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="flex w-full flex-col items-end gap-2" key={index}>
+              <Skeleton
+                className={cn(
+                  "motion-reduce:animate-none h-9 rounded-2xl rounded-br-lg",
+                  row.bubble,
+                )}
+              />
+            </div>
+          ),
+        )}
+      </div>
+    </div>
+  );
+}
+
 function PureMessages({
   chatId,
   empty = false,
+  historyLoading = false,
   status,
   messages,
   regenerate,
@@ -111,7 +183,7 @@ function PureMessages({
 
   return (
     <div className="relative flex-1 bg-background">
-      {!empty && messages.length === 0 && !isLoading && (
+      {!empty && messages.length === 0 && !isLoading && !historyLoading && (
         <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
           <Greeting />
         </div>
@@ -169,6 +241,8 @@ function PureMessages({
           <MessageScrollerButton className="max-md:size-10" />
         </MessageScroller>
       </MessageScrollerProvider>
+
+      {historyLoading && messages.length === 0 && <HistoryLoadingSkeleton />}
     </div>
   );
 }

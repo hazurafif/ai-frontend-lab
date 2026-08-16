@@ -33,6 +33,7 @@ export function ChatShell() {
     input,
     setInput,
     isLoading,
+    historyLoading,
     currentModelIdRef,
     thinkingEffortRef,
     editMessage,
@@ -98,7 +99,11 @@ export function ChatShell() {
     [thinkingEffortRef],
   );
 
-  const isNewChat = mounted && messages.length === 0 && !isLoading;
+  // The centered new-chat composer only when the chat is REALLY empty —
+  // while server history loads (historyLoading) it must not flash the
+  // greeting; the message area shows a skeleton instead.
+  const isNewChat =
+    mounted && messages.length === 0 && !isLoading && !historyLoading;
 
   const prevChatIdRef = useRef(chatId);
   useEffect(() => {
@@ -183,6 +188,7 @@ export function ChatShell() {
         <Messages
           chatId={chatId}
           empty={isNewChat}
+          historyLoading={historyLoading}
           isLoading={isLoading}
           messages={messages}
           onEditMessage={handleEditMessage}

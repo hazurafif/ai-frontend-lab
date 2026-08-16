@@ -65,6 +65,10 @@ type ActiveChatContextValue = {
   input: string;
   setInput: Dispatch<SetStateAction<string>>;
   isLoading: boolean;
+  /** True while the opened chat's messages are loading from the server
+   * (empty local cache) — the conversation area shows a skeleton instead
+   * of the new-chat greeting. */
+  historyLoading: boolean;
   /** Live ref of the chat model — read by the transport at send time.
    * The reactive state lives in ChatShell (same hydration commit as the
    * model selector) and is synced into these refs. */
@@ -190,7 +194,8 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { isAuthenticated, user } = useAuth();
-  const { markThreadRunning, setActiveThreadId, statuses } = useThreads();
+  const { markThreadRunning, markThreadStale, setActiveThreadId, statuses } =
+    useThreads();
 
   // localStorage scope: the signed-in username (fixed "guest" scope when
   // anonymous). All chat caches are keyed by it, so a second account on
@@ -234,6 +239,11 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
   );
 
   const [input, setInput] = useState("");
+
+  // True while the opened chat's history is being fetched from the server
+  // (empty local cache). The conversation area shows a skeleton instead of
+  // the new-chat greeting while this is set.
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   const { messages, setMessages, sendMessage, status, stop, regenerate } =
     useChat<ChatMessage>({
@@ -345,9 +355,13 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
     if (prevScope === scope) {
       return;
     }
-    setMessages(loadMessages(scope, chatId));
+    const cached = loadMessages(scope, chatId);
+    setMessages(cached);
+    setHistoryLoading(
+      cached.length === 0 && chatIdFromUrl !== null && isAuthenticated,
+    );
     setInput("");
-  }, [chatId, scope, setInput, setMessages]);
+  }, [chatId, chatIdFromUrl, isAuthenticated, scope, setInput, setMessages]);
 
   // Load persisted messages when the active chat changes; detach a still-
   // streaming fetch when navigating away (durable chat: the run keeps going
@@ -366,8 +380,14 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
       ) {
         stopRef.current();
       }
-      setMessages(loadMessages(scope, chatId));
+      const cached = loadMessages(scope, chatId);
+      setMessages(cached);
       setInput("");
+      // Empty cache → history will be fetched from the server; show a
+      // skeleton (never the new-chat greeting — the thread exists).
+      setHistoryLoading(
+        cached.length === 0 && chatIdFromUrl !== null && isAuthenticated,
+      );
     }
     if (!chatIdFromUrl || !isAuthenticated || threadStatus === "running") {
       return;
@@ -375,14 +395,25 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
     fetchThreadMessages(chatIdFromUrl)
       .then((server) => {
-        if (cancelled || !Array.isArray(server) || server.length === 0) {
+        if (cancelled) {
+          return;
+        }
+        if (!Array.isArray(server) || server.length === 0) {
+          // No server history either — genuinely empty chat.
+          setHistoryLoading(false);
           return;
         }
         setMessages((current) =>
-          current.length === 0 ? serverMessagesToChatMessages(server) : current,
+          current.length === 0
+            ? serverMessagesToChatMessages(server, { interrupted: true })
+            : current,
         );
+        setHistoryLoading(false);
       })
       .catch(() => {
+        if (!cancelled) {
+          setHistoryLoading(false);
+        }
         // offline/backend error — keep whatever the local cache has
       });
     return () => {
@@ -427,13 +458,13 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
     let sawTerminal = false;
     const controller = new AbortController();
     const merger = new AttachMerger();
-    const refetchHistory = async () => {
+    const refetchHistory = async (options?: { interrupted?: boolean }) => {
       try {
         const server = await fetchThreadMessages(chatIdFromUrl);
         if (cancelled || !Array.isArray(server) || server.length === 0) {
           return;
         }
-        setMessages(serverMessagesToChatMessages(server));
+        setMessages(serverMessagesToChatMessages(server, options));
       } catch {
         // offline — keep the merged list
       }
@@ -449,6 +480,11 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
         }
       } catch {
         // offline — attach on top of whatever we have
+      } finally {
+        // Baseline settled — the skeleton (if any) is done either way.
+        if (!cancelled) {
+          setHistoryLoading(false);
+        }
       }
       if (cancelled) {
         return;
@@ -477,8 +513,21 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
           controller.signal,
           { headers: authHeaders() },
         );
-      } catch {
-        // 409 (no active run) / stream error — fall through to history
+      } catch (error) {
+        // 409 (no active run — the thread's `running` status is a stale
+        // leftover of a dead process) / stream error — fall through to
+        // history. On 409, un-stick the thread status (sidebar spinner,
+        // composer background-run mode) and render dangling tool calls as
+        // interrupted instead of spinning forever.
+        const conflict =
+          error instanceof Error && error.message.includes("(409)");
+        if (conflict) {
+          markThreadStale(chatIdFromUrl);
+        }
+        if (!cancelled) {
+          void refetchHistory(conflict ? { interrupted: true } : undefined);
+        }
+        return;
       }
       if (!cancelled && !sawTerminal) {
         void refetchHistory();
@@ -487,8 +536,11 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
       controller.abort();
+      // Detached (chat switch / stop): don't leave the skeleton stuck —
+      // the next load effect sets the correct value on a switch.
+      setHistoryLoading(false);
     };
-  }, [attachActive, chatIdFromUrl, setMessages]);
+  }, [attachActive, chatIdFromUrl, markThreadStale, setMessages]);
 
   // The thread the user is currently looking at — the notification store
   // suppresses completion toasts for it (the user is watching it already).
@@ -594,6 +646,7 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
     setNewChatId(generateUUID());
     setMessages([]);
     setInput("");
+    setHistoryLoading(false);
   }, [chatIdFromUrl, router, setInput, setMessages]);
 
   // Stop generation client-side AND abort the server-side run, so the agent
@@ -788,6 +841,7 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
       deleteAllChats,
       deleteChat,
       editMessage,
+      historyLoading,
       input,
       isLoading,
       messages,
@@ -809,6 +863,7 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
       deleteAllChats,
       deleteChat,
       editMessage,
+      historyLoading,
       input,
       isLoading,
       messages,
