@@ -10,6 +10,11 @@ export type PreferencesPayload = {
   enable_search?: boolean | null;
   hide_reasoning?: boolean | null;
   hide_tool_calls?: boolean | null;
+  // Per-user enabled models (`provider:model` ids, as listed by
+  // /connections/models): null = no restriction (every model enabled),
+  // [] = none. The backend refuses chat when the effective model is not
+  // in this list.
+  enabled_models?: string[] | null;
 };
 
 export type UserPreferences = {
@@ -19,6 +24,8 @@ export type UserPreferences = {
   // Effective display preferences (default False = show).
   hideReasoning: boolean;
   hideToolCalls: boolean;
+  // Effective enabled-models list; null = no restriction (all enabled).
+  enabledModels: string[] | null;
 };
 
 function toUserPreferences(data: PreferencesPayload): UserPreferences {
@@ -27,6 +34,9 @@ function toUserPreferences(data: PreferencesPayload): UserPreferences {
       typeof data.enable_search === "boolean" ? data.enable_search : null,
     hideReasoning: Boolean(data.hide_reasoning),
     hideToolCalls: Boolean(data.hide_tool_calls),
+    enabledModels: Array.isArray(data.enabled_models)
+      ? data.enabled_models
+      : null,
   };
 }
 
