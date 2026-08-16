@@ -5,8 +5,7 @@
 // and sign-out. Profile fields are read-only — the backend has no
 // self-service profile-update endpoint yet; role/disabled are admin-managed.
 
-import { LogOutIcon, TriangleAlertIcon } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { TriangleAlertIcon } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { toast } from "sonner";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -159,106 +158,81 @@ function PasswordCard() {
   const invalid = error !== null;
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Change password</CardTitle>
-        <CardDescription>
+    <section className="flex flex-col gap-3">
+      <div className="flex flex-col gap-0.5">
+        <h2 className="text-base font-semibold">Change password</h2>
+        <p className="text-[13px] text-muted-foreground">
           Verify your current password, then set a new one (at least 8
           characters).
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        {invalid ? (
-          <Alert variant="destructive" className="mb-4">
-            <TriangleAlertIcon data-icon="inline-start" />
-            <AlertTitle>Password change failed</AlertTitle>
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        ) : null}
-        <form onSubmit={handleSubmit} noValidate>
-          <FieldGroup>
-            <Field data-invalid={invalid || undefined}>
-              <FieldLabel htmlFor="old-password">Current password</FieldLabel>
-              <Input
-                id="old-password"
-                type="password"
-                value={oldPassword}
-                onChange={(event) => setOldPassword(event.target.value)}
-                autoComplete="current-password"
-                required
-                aria-invalid={invalid || undefined}
-              />
-            </Field>
-            <Field data-invalid={invalid || undefined}>
-              <FieldLabel htmlFor="new-password">New password</FieldLabel>
-              <Input
-                id="new-password"
-                type="password"
-                value={newPassword}
-                onChange={(event) => setNewPassword(event.target.value)}
-                autoComplete="new-password"
-                minLength={8}
-                maxLength={128}
-                required
-                aria-invalid={invalid || undefined}
-              />
-              <FieldDescription>At least 8 characters.</FieldDescription>
-            </Field>
-            <Field data-invalid={invalid || undefined}>
-              <FieldLabel htmlFor="confirm-password">
-                Confirm new password
-              </FieldLabel>
-              <Input
-                id="confirm-password"
-                type="password"
-                value={confirm}
-                onChange={(event) => setConfirm(event.target.value)}
-                autoComplete="new-password"
-                required
-                aria-invalid={invalid || undefined}
-              />
-            </Field>
-          </FieldGroup>
-          <Button type="submit" className="mt-4" disabled={pending || empty}>
-            {pending ? (
-              <>
-                <Spinner data-icon="inline-start" />
-                Changing…
-              </>
-            ) : (
-              "Change password"
-            )}
-          </Button>
-        </form>
-      </CardContent>
-    </Card>
-  );
-}
-
-function SessionCard() {
-  const { logout } = useAuth();
-  const router = useRouter();
-
-  const handleSignOut = () => {
-    logout();
-    router.push("/login");
-  };
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Sign out</CardTitle>
-        <CardDescription>
-          Ends this browser session. Your chats stay saved on the server.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <Button variant="outline" onClick={handleSignOut}>
-          <LogOutIcon data-icon="inline-start" />
-          Sign out
-        </Button>
-      </CardContent>
-    </Card>
+        </p>
+      </div>
+      <Card>
+        <CardContent>
+          {invalid ? (
+            <Alert variant="destructive" className="mb-4">
+              <TriangleAlertIcon data-icon="inline-start" />
+              <AlertTitle>Password change failed</AlertTitle>
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          ) : null}
+          <form onSubmit={handleSubmit} noValidate>
+            <FieldGroup>
+              <Field data-invalid={invalid || undefined}>
+                <FieldLabel htmlFor="old-password">Current password</FieldLabel>
+                <Input
+                  id="old-password"
+                  type="password"
+                  value={oldPassword}
+                  onChange={(event) => setOldPassword(event.target.value)}
+                  autoComplete="current-password"
+                  required
+                  aria-invalid={invalid || undefined}
+                />
+              </Field>
+              <Field data-invalid={invalid || undefined}>
+                <FieldLabel htmlFor="new-password">New password</FieldLabel>
+                <Input
+                  id="new-password"
+                  type="password"
+                  value={newPassword}
+                  onChange={(event) => setNewPassword(event.target.value)}
+                  autoComplete="new-password"
+                  minLength={8}
+                  maxLength={128}
+                  required
+                  aria-invalid={invalid || undefined}
+                />
+                <FieldDescription>At least 8 characters.</FieldDescription>
+              </Field>
+              <Field data-invalid={invalid || undefined}>
+                <FieldLabel htmlFor="confirm-password">
+                  Confirm new password
+                </FieldLabel>
+                <Input
+                  id="confirm-password"
+                  type="password"
+                  value={confirm}
+                  onChange={(event) => setConfirm(event.target.value)}
+                  autoComplete="new-password"
+                  required
+                  aria-invalid={invalid || undefined}
+                />
+              </Field>
+            </FieldGroup>
+            <Button type="submit" className="mt-4" disabled={pending || empty}>
+              {pending ? (
+                <>
+                  <Spinner data-icon="inline-start" />
+                  Changing…
+                </>
+              ) : (
+                "Change password"
+              )}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
+    </section>
   );
 }
 
@@ -270,7 +244,6 @@ export function AccountTab() {
       </p>
       <ProfileCard />
       <PasswordCard />
-      <SessionCard />
     </div>
   );
 }

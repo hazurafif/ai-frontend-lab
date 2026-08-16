@@ -570,18 +570,25 @@ export function MultimodalInput({
 
   // The live list plus the current model when it isn't listed, so the
   // selected model is always representable in the menu. No presets: the
-  // list is only ever the live catalog (connections / allowlist).
+  // list is only ever the live catalog (connections / allowlist). While
+  // the catalog is still loading (sourceModels === null) don't append the
+  // fallback — it would flash at the bottom of the menu until the fetch
+  // resolves, even when the model IS advertised.
   const models = useMemo(() => {
     const base = sourceModels ?? [];
     if (base.some((m) => m.id === selectedModelId)) {
       return base;
+    }
+    if (sourceModels === null) {
+      return [];
     }
     return [
       ...base,
       {
         id: selectedModelId,
         name: selectedModelId,
-        description: "Configured on the backend (not in the list)",
+        description:
+          "Active model — configured on the backend; not advertised by any connection's /v1/models",
       },
     ];
   }, [selectedModelId, sourceModels]);

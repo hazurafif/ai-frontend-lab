@@ -126,7 +126,7 @@ function OnboardingScreen({
                 onClick={() => router.push("/settings?tab=connections")}
                 type="button"
               >
-                Add the model connection
+                Add connection
               </Button>
             </>
           ) : (

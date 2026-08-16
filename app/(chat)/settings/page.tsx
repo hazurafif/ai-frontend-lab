@@ -1252,7 +1252,10 @@ function ConnectionsTab() {
         : {
             apiToken: "",
             baseUrl: "",
-            isDefault: false,
+            extra: {},
+            // First llm connection — default it so the backend unlocks chat
+            // (setup.completed needs a default with a token AND a model).
+            isDefault: true,
             kind: "llm",
             name: "",
           },
@@ -1276,6 +1279,11 @@ function ConnectionsTab() {
       baseUrl: draft.baseUrl?.trim() || undefined,
       name,
     };
+    if (draft.kind === "llm" && !payload.extra?.model) {
+      toast.warning(
+        "No default model set — chat stays locked until you add one.",
+      );
+    }
     setSavingConnection(true);
     try {
       if (editing) {
@@ -1504,6 +1512,60 @@ function ConnectionsTab() {
                 value={draft?.apiToken ?? ""}
               />
             </Field>
+            {draft?.kind === "llm" && (
+              <Field>
+                <FieldLabel htmlFor="connection-model">
+                  Default model
+                </FieldLabel>
+                <Input
+                  id="connection-model"
+                  onChange={(event) =>
+                    setDraft((current) =>
+                      current
+                        ? {
+                            ...current,
+                            extra: {
+                              ...(current.extra ?? {}),
+                              model: event.target.value.trim() || undefined,
+                            },
+                          }
+                        : current,
+                    )
+                  }
+                  placeholder="e.g. gpt-4o-mini"
+                  value={
+                    typeof draft?.extra?.model === "string"
+                      ? draft.extra.model
+                      : ""
+                  }
+                />
+                <FieldDescription>
+                  Model id from the provider&apos;s /v1/models. The backend
+                  treats setup as complete only once the default llm connection
+                  has a token and a model — without it chat stays locked.
+                </FieldDescription>
+              </Field>
+            )}
+            {draft?.kind === "llm" && (
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-sm font-medium">Use as default</span>
+                  <span className="text-[13px] text-muted-foreground">
+                    Chat uses this connection. With one llm connection this is
+                    automatic — flip it when you have several.
+                  </span>
+                </div>
+                <Switch
+                  aria-label="Use as default llm connection"
+                  checked={draft.isDefault ?? false}
+                  onCheckedChange={(checked) =>
+                    setDraft((current) =>
+                      current ? { ...current, isDefault: checked } : current,
+                    )
+                  }
+                />
+              </div>
+            )}
           </FieldGroup>
           <DialogFooter>
             {editing && (
@@ -1595,17 +1657,24 @@ function ModelTab({ settings }: { settings: SettingsState }) {
   // the list — never silently fall back to a wrong preset entry.
   // When the current id isn't in the list, surface it at the top as-is so
   // the active model stays visible. No presets: the list is only ever the
-  // live catalog (aggregated connections / allowlist).
+  // live catalog (aggregated connections / allowlist). While the catalog
+  // is still loading (sourceModels === null) don't synthesize anything —
+  // that would flash a bogus "not in the list" row for ~1s on every mount
+  // even for models the catalog does advertise.
   const models: ChatModel[] = useMemo(() => {
     const base = sourceModels ?? [];
     if (base.some((m) => m.id === modelId)) {
       return base;
     }
+    if (sourceModels === null) {
+      return [];
+    }
     return [
       {
         id: modelId,
         name: modelId,
-        description: "Model reported by the backend — not in the list",
+        description:
+          "Active model — reported by the backend; not advertised by any connection's /v1/models",
       },
       ...base,
     ];
@@ -1650,6 +1719,16 @@ function ModelTab({ settings }: { settings: SettingsState }) {
 
   return (
     <div className="flex flex-col gap-4">
+      {/* Header row lives outside the card — same as the Tools tab. */}
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex flex-col gap-0.5">
+          <span className="text-sm font-medium">Available models</span>
+          <span className="text-[13px] text-muted-foreground">
+            Models from your connections&apos; /v1/models. Disabled models are
+            refused in chat.
+          </span>
+        </div>
+      </div>
       <Card className="flex flex-col gap-3">
         {allowed?.restricted && (
           <p className="flex items-center gap-1.5 text-[13px] text-muted-foreground">
@@ -1659,16 +1738,9 @@ function ModelTab({ settings }: { settings: SettingsState }) {
               : `Your account may use ${allowed.models.length} model(s).`}
           </p>
         )}
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex flex-col gap-0.5">
-            <span className="text-sm font-medium">Available models</span>
-            <span className="text-[13px] text-muted-foreground">
-              Models from your connections&apos; /v1/models. Disabled models are
-              refused in chat.
-            </span>
-          </div>
-        </div>
-        {models.length === 0 ? (
+        {sourceModels === null ? (
+          <p className="text-[13px] text-muted-foreground">Loading models…</p>
+        ) : models.length === 0 ? (
           <p className="text-[13px] text-muted-foreground">
             No models yet — add an llm connection first.
           </p>
