@@ -14,7 +14,8 @@ import { cn } from "@/lib/utils";
  * The AI SDK tool UI part produced from `tool-input-*` / `tool-output-*`
  * data-stream chunks. `type` is `tool-<name>`; `state` follows the tool
  * lifecycle: input-streaming -> input-available -> output-available
- * (or output-error / output-denied).
+ * (or output-error / output-denied / interrupted — the latter when a
+ * rehydrated run died before the tool returned).
  */
 export type ToolUIPart = {
   type: string;
@@ -34,6 +35,9 @@ type ToolStatus = {
 const RUNNING_STATES = new Set(["input-streaming", "input-available"]);
 
 function statusOf(state: string): ToolStatus {
+  if (state === "interrupted") {
+    return { label: "Interrupted", badge: "secondary", running: false };
+  }
   if (state === "output-error" || state === "error") {
     return { label: "Error", badge: "destructive", running: false };
   }

@@ -279,10 +279,16 @@ function reasoningFromMessage(msg: ServerMessage): string {
  * Returns null for messages the UI cannot render (tool/system messages —
  * tool messages are folded into their ai message's tool parts by the
  * caller).
+ *
+ * `options.interrupted` renders tool calls that never got a result as
+ * terminal `interrupted` parts instead of `input-available` — use it when
+ * rehydrating a thread whose run is known to be dead (attach-stream 409),
+ * where the spinner would otherwise spin forever.
  */
 export function serverMessageToChatMessage(
   msg: ServerMessage,
   toolOutputs: ReadonlyMap<string, string>,
+  options?: { interrupted?: boolean },
 ): ChatMessage | null {
   if (msg.type === "human") {
     return {
@@ -313,7 +319,12 @@ export function serverMessageToChatMessage(
       type: `tool-${call.name ?? "unknown"}`,
       toolCallId,
       toolName: call.name ?? "unknown",
-      state: output !== undefined ? "output-available" : "input-available",
+      state:
+        output !== undefined
+          ? "output-available"
+          : options?.interrupted
+            ? "interrupted"
+            : "input-available",
       input: call.args ?? {},
       ...(output !== undefined ? { output } : {}),
     } as unknown as ChatMessage["parts"][number]);
@@ -329,6 +340,7 @@ export function serverMessageToChatMessage(
  */
 export function serverMessagesToChatMessages(
   server: ServerMessage[],
+  options?: { interrupted?: boolean },
 ): ChatMessage[] {
   const toolOutputs = new Map<string, string>();
   for (const msg of server) {
@@ -339,7 +351,7 @@ export function serverMessagesToChatMessages(
 
   const messages: ChatMessage[] = [];
   for (const msg of server) {
-    const converted = serverMessageToChatMessage(msg, toolOutputs);
+    const converted = serverMessageToChatMessage(msg, toolOutputs, options);
     if (converted) {
       messages.push(converted);
     }

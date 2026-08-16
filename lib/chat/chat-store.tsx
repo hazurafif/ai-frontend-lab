@@ -11,6 +11,10 @@
 //   - the per-user notification stream (applyNotification — live updates)
 //   - the chat input (markThreadRunning — optimistic, before the server
 //     confirms the run started)
+//   - the attach-stream 409 (markThreadStale — the backend reports
+//     `running` for a run a dead process never finalized; the attach flow
+//     proves there is no active run, so the status is overridden locally
+//     and seedThreads stops trusting the server for that thread)
 // The sidebar renders spinners from `statuses`; the notification listener
 // toasts terminal events of background threads.
 
@@ -52,6 +56,14 @@ type ThreadsContextValue = {
   markThreadRunning: (threadId: string) => void;
   /** Overwrite the status of one thread. */
   setThreadStatus: (threadId: string, status: ThreadStatus) => void;
+  /**
+   * Mark a thread's server-side `running` status as stale: the attach
+   * stream 409'd (no active run), so the run died without finalizing.
+   * Sets the status to `cancelled` locally and makes seedThreads ignore
+   * the server's stuck status until real activity (a new send or a
+   * lifecycle event) clears the marker.
+   */
+  markThreadStale: (threadId: string) => void;
   /** Merge statuses from GET /threads (server wins per thread). */
   seedThreads: (threads: ServerThread[]) => void;
   /**
@@ -145,6 +157,10 @@ export function ThreadsProvider({ children }: { children: ReactNode }) {
 
   const [statuses, setStatuses] = useState<Record<string, ThreadStatus>>({});
   const [notifications, setNotifications] = useState<ThreadNotification[]>([]);
+  // Threads whose server-side `running` status is a stale leftover of a
+  // dead process (attach stream 409). Ref-only: it gates seedThreads, it
+  // never renders — markThreadStale triggers the re-render via setStatuses.
+  const staleThreadsRef = useRef<Set<string>>(new Set());
   const [activeThreadId, setActiveThreadIdState] = useState<string | null>(
     null,
   );
@@ -184,17 +200,27 @@ export function ThreadsProvider({ children }: { children: ReactNode }) {
 
   const markThreadRunning = useCallback(
     (threadId: string) => {
+      // A new send starts a real run — the stale marker no longer applies.
+      staleThreadsRef.current.delete(threadId);
       setThreadStatus(threadId, "running");
       window.dispatchEvent(new Event(THREAD_ACTIVITY_EVENT));
     },
     [setThreadStatus],
   );
 
+  const markThreadStale = useCallback((threadId: string) => {
+    staleThreadsRef.current.add(threadId);
+    setThreadStatus(threadId, "cancelled");
+    window.dispatchEvent(new Event(THREAD_ACTIVITY_EVENT));
+  }, []);
+
   const seedThreads = useCallback((threads: ServerThread[]) => {
     setStatuses((current) => {
       const next = { ...current };
       for (const thread of threads) {
-        if (thread.status) {
+        // Stale threads: the server keeps saying `running` for a run a
+        // dead process never finalized — keep the local `cancelled`.
+        if (thread.status && !staleThreadsRef.current.has(thread.thread_id)) {
           next[thread.thread_id] = thread.status;
         }
       }
@@ -210,6 +236,10 @@ export function ThreadsProvider({ children }: { children: ReactNode }) {
       if (!Number.isFinite(seq) || seq <= lastSeqRef.current) {
         return;
       }
+      // Any lifecycle event means the backend run machinery is live for
+      // this thread again — clear the stale marker so seedThreads trusts
+      // the server status once more.
+      staleThreadsRef.current.delete(notification.thread_id);
       lastSeqRef.current = seq;
       setLastSeq(seq);
       if (username) {
@@ -260,6 +290,7 @@ export function ThreadsProvider({ children }: { children: ReactNode }) {
       activeThreadId,
       applyNotification,
       markThreadRunning,
+      markThreadStale,
       notifications,
       runningThreads,
       seedThreads,
@@ -271,6 +302,7 @@ export function ThreadsProvider({ children }: { children: ReactNode }) {
       activeThreadId,
       applyNotification,
       markThreadRunning,
+      markThreadStale,
       notifications,
       runningThreads,
       seedThreads,
