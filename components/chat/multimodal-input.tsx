@@ -502,7 +502,7 @@ export function MultimodalInput({
     };
   }, [setInput]);
 
-  const toggleDictation = () => {
+  const toggleDictation = useCallback(() => {
     const recognition = recognitionRef.current;
     if (!recognition) {
       return;
@@ -515,7 +515,7 @@ export function MultimodalInput({
     baseInputRef.current = input;
     recognition.start();
     setListening(true);
-  };
+  }, [input, listening]);
 
   // ⌘D / Ctrl+D — toggle dictation from anywhere (the mic button shows it).
   useEffect(() => {
@@ -531,7 +531,7 @@ export function MultimodalInput({
     };
     window.addEventListener("keydown", handleDictationKeyDown);
     return () => window.removeEventListener("keydown", handleDictationKeyDown);
-  });
+  }, [toggleDictation]);
 
   // Sending/streaming stops dictation so the mic never runs during a run.
   useEffect(() => {

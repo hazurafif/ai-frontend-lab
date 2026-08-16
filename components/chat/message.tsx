@@ -10,7 +10,7 @@ import {
   RefreshCwIcon,
   RotateCcwIcon,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -196,7 +196,51 @@ function ToolPart({ part }: { part: ToolUIPart }) {
   return <ToolCard part={part} />;
 }
 
-function PreviewMessage({
+/**
+ * One text part. The processed markdown (sanitize + citation markers) is
+ * memoized on the raw text so `MessageResponse`'s children-identity memo
+ * actually hits: without this, every streaming flush / status flip would
+ * re-run Streamdown over EVERY text part in the conversation (the SDK
+ * re-renders the whole list on each flush), which pegs the main thread
+ * and freezes the chat on long conversations.
+ */
+const TextPart = memo(function TextPart({
+  citationProps,
+  role,
+  text,
+}: {
+  citationProps: ReturnType<typeof citationStreamdownProps>;
+  role: ChatMessage["role"];
+  text: string;
+}) {
+  const className = cn("max-md:text-[15px] text-[13px] leading-[1.65]", {
+    "w-fit max-w-[min(80%,56ch)] overflow-hidden break-words rounded-2xl rounded-br-lg border border-border/30 bg-gradient-to-br from-secondary to-muted px-3.5 py-2 shadow-[var(--shadow-card)]":
+      role === "user",
+  });
+  const rendered = useMemo(
+    () =>
+      role === "assistant"
+        ? embedCitationMarkers(sanitizeText(text))
+        : sanitizeText(text),
+    [role, text],
+  );
+  return (
+    <MessageContent className={className} data-testid="message-content">
+      <MessageResponse {...citationProps}>{rendered}</MessageResponse>
+    </MessageContent>
+  );
+});
+
+/**
+ * One message in the list. Memoized on props: the AI SDK preserves the
+ * object identity of untouched messages across streaming flushes (only the
+ * streamed message is rebuilt), so during a run only the message actually
+ * streaming re-renders — not the whole conversation. Without this, every
+ * text-delta flush re-rendered every message and re-parsed every text
+ * part through Streamdown, which blocked the main thread and froze the
+ * chat on long conversations (deep research threads, big tool outputs).
+ */
+const PreviewMessage = memo(function PreviewMessage({
   chatId: _chatId,
   message,
   isLoading,
@@ -273,19 +317,22 @@ function PreviewMessage({
   );
   const isThinking = isAssistant && isLoading && !hasAnyContent;
 
-  const mergedReasoning = message.parts?.reduce(
-    (acc, part) => {
-      if (part.type === "reasoning" && part.text?.trim().length > 0) {
-        return {
-          isStreaming: "state" in part ? part.state === "streaming" : false,
-          rendered: false,
-          text: acc.text ? `${acc.text}\n\n${part.text}` : part.text,
-        };
-      }
-      return acc;
-    },
-    { isStreaming: false, rendered: false, text: "" },
-  ) ?? { isStreaming: false, rendered: false, text: "" };
+  const mergedReasoning = useMemo(
+    () =>
+      message.parts?.reduce(
+        (acc, part) => {
+          if (part.type === "reasoning" && part.text?.trim().length > 0) {
+            return {
+              isStreaming: "state" in part ? part.state === "streaming" : false,
+              text: acc.text ? `${acc.text}\n\n${part.text}` : part.text,
+            };
+          }
+          return acc;
+        },
+        { isStreaming: false, text: "" },
+      ) ?? { isStreaming: false, text: "" },
+    [message.parts],
+  );
 
   // User messages render their attachment chips FIRST, then the text — the
   // file is the subject of the message, so its chip leads (composer parts
@@ -301,6 +348,12 @@ function PreviewMessage({
     ];
   }, [message.parts, message.role]);
 
+  // The merged reasoning block renders at the position of the first
+  // reasoning part that has text (remaining reasoning parts render nothing).
+  const firstReasoningIndex = orderedParts.findIndex(
+    (part) => part.type === "reasoning" && part.text?.trim().length > 0,
+  );
+
   const parts = orderedParts.map((part, index) => {
     const key = `message-${message.id}-part-${index}`;
     const { type } = part;
@@ -310,8 +363,7 @@ function PreviewMessage({
       if (hideReasoning) {
         return null;
       }
-      if (!mergedReasoning.rendered && mergedReasoning.text) {
-        mergedReasoning.rendered = true;
+      if (index === firstReasoningIndex && mergedReasoning.text) {
         return (
           <ReasoningBlock
             isStreaming={mergedReasoning.isStreaming}
@@ -325,20 +377,12 @@ function PreviewMessage({
 
     if (type === "text") {
       return (
-        <MessageContent
-          className={cn("max-md:text-[15px] text-[13px] leading-[1.65]", {
-            "w-fit max-w-[min(80%,56ch)] overflow-hidden break-words rounded-2xl rounded-br-lg border border-border/30 bg-gradient-to-br from-secondary to-muted px-3.5 py-2 shadow-[var(--shadow-card)]":
-              message.role === "user",
-          })}
-          data-testid="message-content"
+        <TextPart
+          citationProps={citationProps}
           key={key}
-        >
-          <MessageResponse {...citationProps}>
-            {message.role === "assistant"
-              ? embedCitationMarkers(sanitizeText(part.text))
-              : sanitizeText(part.text)}
-          </MessageResponse>
-        </MessageContent>
+          role={message.role}
+          text={part.text}
+        />
       );
     }
 
@@ -589,7 +633,7 @@ function PreviewMessage({
       </div>
     </div>
   );
-}
+});
 
 export { PreviewMessage };
 
