@@ -8,6 +8,7 @@ import {
   PuzzleIcon,
   ShieldCheckIcon,
   SlidersHorizontalIcon,
+  SparklesIcon,
   UserIcon,
   UsersIcon,
   WrenchIcon,
@@ -18,6 +19,7 @@ export type SettingsTabId =
   | "general"
   | "connections"
   | "model"
+  | "agents"
   | "skills"
   | "tools"
   | "knowledge-base"
@@ -35,6 +37,7 @@ export const SETTINGS_TABS: SettingsTab[] = [
   { id: "general", label: "General", icon: SlidersHorizontalIcon },
   { id: "connections", label: "Connections", icon: CableIcon },
   { id: "model", label: "Model", icon: BotIcon },
+  { id: "agents", label: "Agents", icon: SparklesIcon },
   { id: "skills", label: "Skills", icon: WrenchIcon },
   { id: "tools", label: "Tools", icon: PuzzleIcon },
   { id: "knowledge-base", label: "Knowledge", icon: DatabaseIcon },
@@ -59,7 +62,7 @@ export const SETTINGS_TAB_CATEGORIES: SettingsTabCategory[] = [
   {
     id: "agent",
     label: "Agent",
-    tabIds: ["skills", "tools", "knowledge-base"],
+    tabIds: ["agents", "skills", "tools", "knowledge-base"],
   },
   {
     id: "account",
@@ -70,14 +73,14 @@ export const SETTINGS_TAB_CATEGORIES: SettingsTabCategory[] = [
 
 // MCP tool servers are per-user on the backend now (each user brings their
 // own, CRUD at /mcp/servers) — the Tools tab is available to everyone.
-// Connections (admin credentials), skills mutations and users are still
-// admin-only on the backend.
+// Skills are per-user too (CRUD at /skills); admins additionally manage the
+// agent-wide ones (/agent/skills). Only connections (admin credentials),
+// global agents, users and permissions stay admin-only.
 export function settingsTabsForRole(role?: string): SettingsTab[] {
   return role === "admin"
     ? SETTINGS_TABS
     : SETTINGS_TABS.filter(
         (tab) =>
-          tab.id !== "skills" &&
           tab.id !== "users" &&
           tab.id !== "permissions" &&
           tab.id !== "connections",

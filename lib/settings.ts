@@ -745,10 +745,16 @@ export type BackendToolServer = {
   enabled: boolean;
 };
 
-async function agentFetch(path: string, init?: RequestInit): Promise<Response> {
+// JSON fetch with the auth header + backend error parsing, shared by the
+// /api/agent*, /api/skills and /api/agents resource clients. `path` is the
+// full /api/* route.
+async function apiJsonFetch(
+  path: string,
+  init?: RequestInit,
+): Promise<Response> {
   let res: Response;
   try {
-    res = await fetchWithAuth(`/api/agent${path}`, {
+    res = await fetchWithAuth(path, {
       ...init,
       headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
     });
@@ -768,6 +774,12 @@ async function agentFetch(path: string, init?: RequestInit): Promise<Response> {
     throw new Error(detail);
   }
   return res;
+}
+
+// Admin/global agent resources (/api/agent/*) — keeps the legacy call sites
+// (tool servers, agent-scoped skills).
+async function agentFetch(path: string, init?: RequestInit): Promise<Response> {
+  return apiJsonFetch(`/api/agent${path}`, init);
 }
 
 // JSON helper for the admin-only app settings + connections endpoints
@@ -811,13 +823,29 @@ function skillPayload(skill: Skill) {
   };
 }
 
-export async function fetchSkills(): Promise<BackendSkill[]> {
-  const res = await agentFetch("/skills");
+export type AgentSkillScope = "agent" | "user";
+
+// The skill CRUD lives at two namespaces: admin-managed global agent skills
+// (/api/agent/skills) and every user's own skill library (/api/skills). Same
+// SkillIn/SkillOut contract — the caller picks the scope.
+function skillsApi(scope: AgentSkillScope, suffix = ""): string {
+  return scope === "user"
+    ? `/api/skills${suffix}`
+    : `/api/agent/skills${suffix}`;
+}
+
+export async function fetchSkills(
+  scope: AgentSkillScope = "agent",
+): Promise<BackendSkill[]> {
+  const res = await apiJsonFetch(skillsApi(scope));
   return (await res.json()) as BackendSkill[];
 }
 
-export async function createSkill(skill: Skill): Promise<BackendSkill> {
-  const res = await agentFetch("/skills", {
+export async function createSkill(
+  skill: Skill,
+  scope: AgentSkillScope = "agent",
+): Promise<BackendSkill> {
+  const res = await apiJsonFetch(skillsApi(scope), {
     method: "POST",
     body: JSON.stringify(skillPayload(skill)),
   });
@@ -827,16 +855,23 @@ export async function createSkill(skill: Skill): Promise<BackendSkill> {
 export async function updateSkill(
   name: string,
   skill: Skill,
+  scope: AgentSkillScope = "agent",
 ): Promise<BackendSkill> {
-  const res = await agentFetch(`/skills/${encodeURIComponent(name)}`, {
-    method: "PUT",
-    body: JSON.stringify(skillPayload(skill)),
-  });
+  const res = await apiJsonFetch(
+    skillsApi(scope, `/${encodeURIComponent(name)}`),
+    {
+      method: "PUT",
+      body: JSON.stringify(skillPayload(skill)),
+    },
+  );
   return (await res.json()) as BackendSkill;
 }
 
-export async function deleteSkill(name: string): Promise<void> {
-  await agentFetch(`/skills/${encodeURIComponent(name)}`, {
+export async function deleteSkill(
+  name: string,
+  scope: AgentSkillScope = "agent",
+): Promise<void> {
+  await apiJsonFetch(skillsApi(scope, `/${encodeURIComponent(name)}`), {
     method: "DELETE",
   });
 }
@@ -844,15 +879,17 @@ export async function deleteSkill(name: string): Promise<void> {
 export async function deleteSkillFile(
   name: string,
   path: string,
+  scope: AgentSkillScope = "agent",
 ): Promise<void> {
   // Encode per segment so slashes stay readable and %2F never breaks routing.
   const encodedPath = path
     .split("/")
     .map((segment) => encodeURIComponent(segment))
     .join("/");
-  await agentFetch(`/skills/${encodeURIComponent(name)}/files/${encodedPath}`, {
-    method: "DELETE",
-  });
+  await apiJsonFetch(
+    skillsApi(scope, `/${encodeURIComponent(name)}/files/${encodedPath}`),
+    { method: "DELETE" },
+  );
 }
 
 // The backend returns SKILL.md with its frontmatter; the UI edits body and
@@ -879,6 +916,127 @@ export function backendSkillToSkill(backend: BackendSkill): Skill {
     files: backend.files ?? [],
     updatedAt: "",
   };
+}
+
+// --- Agent profiles ----------------------------------------------------------
+//
+// Contract with the backend's /agents endpoints (proxied at /api/agents):
+//
+//   GET   /api/agents                 → list (builtin default first, then the
+//                                       caller's user-scoped, then globals)
+//   POST  /api/agents                 → 201 create (scope global = admin)
+//   PUT   /api/agents/{name}          → full replace ("default" read-only)
+//   DELETE /api/agents/{name}
+//   POST  /api/agents/{name}/test     → dry-run: resolve config + build graph
+//
+// Payload: { name, description, model ("provider:model"), connection,
+//   system_prompt, skills[], tools[], temperature, thinking, interrupt_on,
+//   scope "user"|"global" }.
+
+export const AGENT_NAME_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+export type AgentScope = "user" | "global";
+
+export type BackendAgent = {
+  name: string;
+  description: string | null;
+  model: string | null;
+  connection: string | null;
+  system_prompt: string | null;
+  skills: string[] | null;
+  tools: string[] | null;
+  temperature: number | null;
+  thinking: ThinkingEffort | null;
+  interrupt_on: Record<string, boolean> | null;
+  scope: AgentScope;
+  owner: string;
+  builtin: boolean;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+export type AgentInput = {
+  name: string;
+  description?: string | null;
+  model?: string | null;
+  connection?: string | null;
+  system_prompt?: string | null;
+  skills?: string[] | null;
+  tools?: string[] | null;
+  temperature?: number | null;
+  thinking?: ThinkingEffort | null;
+  interrupt_on?: Record<string, boolean> | null;
+  scope?: AgentScope;
+};
+
+export type AgentTestResult = {
+  status: string;
+  name: string;
+  graph_built: boolean;
+  model: string | null;
+  skills: string[] | null;
+  tools: string[] | null;
+  temperature: number | null;
+  thinking: string | null;
+};
+
+// PUT is a full replace — always send every field (empty = null =
+// backend fallback) so saving never drops prior configuration.
+function agentInputPayload(input: AgentInput) {
+  return {
+    name: input.name,
+    description: input.description?.trim() || null,
+    model: input.model?.trim() || null,
+    connection: input.connection?.trim() || null,
+    system_prompt: input.system_prompt ?? null,
+    skills: input.skills && input.skills.length > 0 ? input.skills : null,
+    tools: input.tools && input.tools.length > 0 ? input.tools : null,
+    temperature: input.temperature ?? null,
+    thinking: input.thinking ?? null,
+    interrupt_on:
+      input.interrupt_on && Object.keys(input.interrupt_on).length > 0
+        ? input.interrupt_on
+        : null,
+    scope: input.scope ?? "user",
+  };
+}
+
+export async function fetchAgents(): Promise<BackendAgent[]> {
+  const res = await apiJsonFetch("/api/agents");
+  return (await res.json()) as BackendAgent[];
+}
+
+export async function createAgent(input: AgentInput): Promise<BackendAgent> {
+  const res = await apiJsonFetch("/api/agents", {
+    method: "POST",
+    body: JSON.stringify(agentInputPayload(input)),
+  });
+  return (await res.json()) as BackendAgent;
+}
+
+export async function updateAgent(
+  name: string,
+  input: AgentInput,
+): Promise<BackendAgent> {
+  const res = await apiJsonFetch(`/api/agents/${encodeURIComponent(name)}`, {
+    method: "PUT",
+    body: JSON.stringify(agentInputPayload(input)),
+  });
+  return (await res.json()) as BackendAgent;
+}
+
+export async function deleteAgent(name: string): Promise<void> {
+  await apiJsonFetch(`/api/agents/${encodeURIComponent(name)}`, {
+    method: "DELETE",
+  });
+}
+
+export async function testAgent(name: string): Promise<AgentTestResult> {
+  const res = await apiJsonFetch(
+    `/api/agents/${encodeURIComponent(name)}/test`,
+    { method: "POST" },
+  );
+  return (await res.json()) as AgentTestResult;
 }
 
 // --- MCP tool servers ---
