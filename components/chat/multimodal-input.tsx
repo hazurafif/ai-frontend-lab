@@ -13,7 +13,7 @@ import {
   SquareIcon,
   XIcon,
 } from "lucide-react";
-import type { FormEvent, KeyboardEvent } from "react";
+import type { ClipboardEvent, FormEvent, KeyboardEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getContextWindow } from "tokenlens";
 import {
@@ -77,6 +77,11 @@ import { fetchThreadUsage, type ThreadUsage } from "@/lib/threads";
 import type { ChatMessage } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { SparklesIcon } from "./icons";
+
+// Pasted plain text longer than this is attached as a .txt file instead of
+// filling the input — agents read attached documents, but huge inline text
+// just floods the message.
+const PASTE_TEXT_FILE_THRESHOLD = 2000;
 
 const THINKING_EFFORT_LABELS: Record<ThinkingEffort, string> = {
   high: "High",
@@ -598,7 +603,7 @@ export function MultimodalInput({
     [models, selectedModelId],
   );
 
-  const handleFiles = (files: FileList | null) => {
+  const handleFiles = (files: FileList | File[] | null) => {
     if (!files || files.length === 0) {
       return;
     }
@@ -676,6 +681,38 @@ export function MultimodalInput({
     }
   };
 
+  // Ctrl+V / ⌘V: clipboard files (images, files copied in the OS file
+  // manager) attach directly; long plain-text pastes become a .txt file so
+  // the agent can read them. Short text keeps the default insert behavior.
+  const handlePaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
+    if (uploadDisabled) {
+      return;
+    }
+    const data = event.clipboardData;
+    if (!data) {
+      return;
+    }
+    // Screenshots/copied images and copied files all arrive as kind
+    // "file" items. getAsFile() can return null — filter those out.
+    const files = Array.from(data.items)
+      .map((item) => (item.kind === "file" ? item.getAsFile() : null))
+      .filter((file): file is File => file !== null);
+    if (files.length > 0) {
+      event.preventDefault();
+      handleFiles(files);
+      return;
+    }
+    // Long text → .txt attachment (preventDefault stops it flooding the
+    // textarea; normal short pastes fall through untouched).
+    const plainText = data.getData("text/plain");
+    if (plainText.length >= PASTE_TEXT_FILE_THRESHOLD) {
+      event.preventDefault();
+      handleFiles([
+        new File([plainText], "pasted-text.txt", { type: "text/plain" }),
+      ]);
+    }
+  };
+
   return (
     <form className="flex w-full flex-col gap-2" onSubmit={submitForm}>
       {editingMessage && (
@@ -725,6 +762,7 @@ export function MultimodalInput({
             onBlur={() => setInputFocused(false)}
             onFocus={() => setInputFocused(true)}
             onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
             placeholder="Message..."
             ref={textareaRef}
             rows={1}
@@ -747,22 +785,39 @@ export function MultimodalInput({
               ref={fileInputRef}
               type="file"
             />
-            <Button
-              aria-label="Attach file"
-              className="max-md:size-11 text-muted-foreground/70"
-              disabled={uploadDisabled}
-              onClick={handlePickFiles}
-              size="sm"
-              title={
-                uploadDisabled
-                  ? "File upload needs the execute tool (EXECUTE_ENABLED=true on the backend)"
-                  : "Attach files for the agent to inspect"
-              }
-              type="button"
-              variant="ghost"
-            >
-              <PlusIcon className="size-4" />
-            </Button>
+            <TooltipProvider>
+              <Tooltip>
+                {/* Disabled buttons swallow pointer events, so the trigger is
+                    a wrapping span — native `title` would never show either. */}
+                <TooltipTrigger
+                  render={
+                    <span
+                      aria-disabled={uploadDisabled || undefined}
+                      className="inline-flex"
+                    >
+                      <Button
+                        aria-label="Attach file"
+                        className="max-md:size-11 text-muted-foreground/70"
+                        disabled={uploadDisabled}
+                        onClick={handlePickFiles}
+                        size="sm"
+                        type="button"
+                        variant="ghost"
+                      >
+                        <PlusIcon className="size-4" />
+                      </Button>
+                    </span>
+                  }
+                />
+                <TooltipContent side="top">
+                  <span>
+                    {uploadDisabled
+                      ? "File upload needs the execute tool (EXECUTE_ENABLED=true on the backend)"
+                      : "Attach or paste files for the agent to inspect"}
+                  </span>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
 
             <ModelSelector
               onOpenChange={setModelSelectorOpen}
