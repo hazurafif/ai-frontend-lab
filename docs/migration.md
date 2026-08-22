@@ -132,7 +132,12 @@ all routers at root; chat endpoints at `/api/chat`, `/threads/*`, `/notification
 - [x] Phase 4 — Serwist (sw.ts + plugin + offline route)
 - [x] Phase 5 — delete Next scaffolding, update Dockerfile/nginx/compose/README/AGENTS
 - [x] Phase 6 — verify: `pnpm check` (0 errors), `npx tsc --noEmit`, `pnpm dev` + curl smoke (all rewrites 401/404 as expected, not 404-on-API), `pnpm build` (390 precache entries), `pnpm start` preview smoke
-- [x] Phase 7 — commits (WIP + migration, `8759ff2`, `0121396`); **browser smoke test still pending** (login → chat → settings → share; PWA offline)
+- [x] Phase 7 — commits (WIP + migration, `8759ff2`, `0121396`)
+- [x] Phase 8 — post-merge cleanup: stripped `"use client"` pragmas (68 files),
+  removed dead mount gates (auth-gate, login, register, settings, app-sidebar,
+  sidebar-history), kept shell/messages gates (CSR-visible purpose), set
+  `components.json rsc: false`, dropped the unused `postcss` devDep
+- [ ] **Browser smoke test still pending** (login → chat → settings → share; PWA offline)
 
 ## Verification notes
 

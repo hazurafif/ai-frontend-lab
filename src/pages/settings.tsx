@@ -1,5 +1,3 @@
-"use client";
-
 import {
   CheckIcon,
   PencilIcon,
@@ -2062,12 +2060,9 @@ export default function SettingsPage() {
     });
   };
 
-  // Settings load from localStorage + backend health (client-only), so the
-  // tabs must not render during SSR/hydration — avoids hydration mismatches.
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  // Settings load from localStorage + backend health (client-only); a mount
+  // flag is no longer needed without SSR — `loaded` already gates the tabs
+  // until the first effect pass fills the state.
 
   return (
     <div className="mx-auto flex h-dvh w-full max-w-4xl flex-col gap-6 px-4 pt-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))]">
@@ -2078,7 +2073,7 @@ export default function SettingsPage() {
         </h1>
       </div>
 
-      {loaded && mounted && (
+      {loaded && (
         <Tabs
           orientation={isMobile ? "horizontal" : "vertical"}
           onValueChange={(value) => setActiveTab(value as SettingsTabId)}

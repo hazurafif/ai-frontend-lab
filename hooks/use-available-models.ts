@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect, useState } from "react";
 import { SETTINGS_CHANGED_EVENT } from "@/lib/constants";
 import { type ChatModel, chatModelsFromSource } from "@/lib/models";

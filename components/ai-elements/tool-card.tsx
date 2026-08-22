@@ -1,4 +1,3 @@
-"use client";
 
 import { ChevronDownIcon, Loader2Icon, TriangleAlertIcon, WrenchIcon } from "lucide-react";
 import { useState } from "react";

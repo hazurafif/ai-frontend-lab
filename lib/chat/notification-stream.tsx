@@ -1,5 +1,3 @@
-"use client";
-
 // Per-user run lifecycle listener: one long-lived SSE connection
 // (GET /api/chat/notifications/stream) that keeps the ThreadsProvider
 // statuses live while chats run in the background.

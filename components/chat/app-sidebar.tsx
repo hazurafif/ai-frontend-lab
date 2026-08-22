@@ -1,5 +1,3 @@
-"use client";
-
 import {
   ChevronsUpDownIcon,
   LogOutIcon,
@@ -89,7 +87,6 @@ export function AppSidebar() {
   const { deleteAllChats, newChat } = useActiveChat();
   const { user, logout, isAuthenticated } = useAuth();
   const { activeTab, setActiveTab } = useSettingsTabs();
-  const [mounted, setMounted] = useState(false);
   const [showDeleteAllDialog, setShowDeleteAllDialog] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
@@ -106,10 +103,6 @@ export function AppSidebar() {
     },
     [setActiveTab, setOpenMobile],
   );
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   // Closing the search modal (or opening a chat from it) clears the query
   // so the sidebar history is never left filtered.
@@ -374,7 +367,7 @@ export function AppSidebar() {
           )}
         </SidebarContent>
         <SidebarFooter className="border-t border-sidebar-border pt-2 pb-3">
-          {mounted && user ? (
+          {user ? (
             <DropdownMenu>
               <DropdownMenuTrigger
                 render={
@@ -425,15 +418,13 @@ export function AppSidebar() {
                     <span>Settings</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={handleToggleTheme}>
-                    {mounted && resolvedTheme === "dark" ? (
+                    {resolvedTheme === "dark" ? (
                       <SunIcon className="size-4" />
                     ) : (
                       <MoonIcon className="size-4" />
                     )}
                     <span>
-                      {mounted && resolvedTheme === "dark"
-                        ? "Light mode"
-                        : "Dark mode"}
+                      {resolvedTheme === "dark" ? "Light mode" : "Dark mode"}
                     </span>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
@@ -464,20 +455,16 @@ export function AppSidebar() {
                   className="h-8 rounded-lg text-sidebar-foreground/60 transition-colors duration-150 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
                   onClick={handleToggleTheme}
                   tooltip={
-                    mounted && resolvedTheme === "dark"
-                      ? "Light mode"
-                      : "Dark mode"
+                    resolvedTheme === "dark" ? "Light mode" : "Dark mode"
                   }
                 >
-                  {mounted && resolvedTheme === "dark" ? (
+                  {resolvedTheme === "dark" ? (
                     <SunIcon className="size-4" />
                   ) : (
                     <MoonIcon className="size-4" />
                   )}
                   <span className="text-[13px]">
-                    {mounted && resolvedTheme === "dark"
-                      ? "Light mode"
-                      : "Dark mode"}
+                    {resolvedTheme === "dark" ? "Light mode" : "Dark mode"}
                   </span>
                 </SidebarMenuButton>
               </SidebarMenuItem>

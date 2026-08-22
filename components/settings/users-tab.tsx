@@ -1,5 +1,3 @@
-"use client";
-
 // Settings > Users (admin only): list, create, change role/disable state and
 // delete accounts via the backend /users endpoints.
 

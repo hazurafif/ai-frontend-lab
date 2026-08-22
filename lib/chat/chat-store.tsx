@@ -1,5 +1,3 @@
-"use client";
-
 // Durable-chat run store: one place for thread run statuses, the recent
 // lifecycle notifications, and the notification-stream cursor.
 //

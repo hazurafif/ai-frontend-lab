@@ -1,4 +1,3 @@
-"use client";
 
 import type { CustomContentUIPart } from "ai";
 import {

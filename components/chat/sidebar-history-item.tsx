@@ -1,5 +1,3 @@
-"use client";
-
 import { LoaderCircleIcon, PencilIcon } from "lucide-react";
 import { memo, useCallback } from "react";
 import { Link } from "react-router";

@@ -1,5 +1,3 @@
-"use client";
-
 import type { UseChatHelpers } from "@ai-sdk/react";
 import type { FileUIPart } from "ai";
 import {

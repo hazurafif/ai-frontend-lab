@@ -1,5 +1,3 @@
-"use client";
-
 // Startup screen.
 //
 // Shows until the backend reports a default `llm` connection (admin-managed)

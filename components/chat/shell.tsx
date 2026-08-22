@@ -1,5 +1,3 @@
-"use client";
-
 import { PanelLeftIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -44,9 +42,9 @@ export function ChatShell() {
     null,
   );
 
-  // Mount-gated empty-state check (hydration rule): server and the client's
-  // first render agree on the bottom-docked composer; once mounted we know
-  // whether this chat really has no messages and can center it.
+  // Empty-state gate (kept from the SSR era — still useful in CSR): the
+  // composer stays bottom-docked until the opened chat's history has been
+  // determined, so an existing chat never flashes the new-chat greeting.
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
     setMounted(true);

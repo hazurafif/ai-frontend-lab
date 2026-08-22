@@ -1,5 +1,3 @@
-"use client";
-
 import { isToday, isYesterday, subMonths, subWeeks } from "date-fns";
 import { useCallback, useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
@@ -115,12 +113,8 @@ export function SidebarHistory({
   const [renameDraft, setRenameDraft] = useState("");
   const [renamePending, setRenamePending] = useState(false);
 
-  // History comes from localStorage + server threads (client-only): wait for
-  // mount so SSR (empty) and client (history) HTML match during hydration.
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  // History comes from localStorage + server threads (client-only). The
+  // load effect below runs on mount — the SSR-era mount gate is gone.
 
   const refreshServer = useCallback(() => {
     if (!isAuthenticated) {
@@ -144,9 +138,6 @@ export function SidebarHistory({
   }, [isAuthenticated, seedThreads]);
 
   useEffect(() => {
-    if (!mounted) {
-      return;
-    }
     // Signed-in: start empty — the server fetch fills the list (the local
     // cache is never consulted). Guest: the localStorage fallback stays.
     if (isAuthenticated) {
@@ -168,7 +159,7 @@ export function SidebarHistory({
       window.removeEventListener(HISTORY_CHANGED_EVENT, refresh);
       window.removeEventListener("storage", refresh);
     };
-  }, [isAuthenticated, mounted, refreshServer, scope]);
+  }, [isAuthenticated, refreshServer, scope]);
 
   const handleDelete = useCallback(() => {
     const chatToDelete = deleteId;

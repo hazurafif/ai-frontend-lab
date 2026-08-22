@@ -1,5 +1,3 @@
-"use client";
-
 // Login form: username + password against the backend /login endpoint.
 // Base UI components only (Card, FieldGroup/Field, Input, Button, Spinner,
 // Alert).

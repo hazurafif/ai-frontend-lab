@@ -1,5 +1,3 @@
-"use client";
-
 // Settings > Account: the signed-in user's profile (avatar, details, role,
 // status), self-service password change (POST /api/auth/users/me/password)
 // and sign-out. Profile fields are read-only — the backend has no

@@ -1,5 +1,3 @@
-"use client";
-
 // Auth state for the whole app: JWT in localStorage, user fetched from the
 // backend, login/logout actions. Mount-gated so the server render (signed
 // out) matches the client's first render.

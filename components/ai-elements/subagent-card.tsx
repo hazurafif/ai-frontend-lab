@@ -1,4 +1,3 @@
-"use client";
 
 import type { CustomContentUIPart } from "ai";
 import { CheckIcon, Loader2Icon, TriangleAlertIcon } from "lucide-react";

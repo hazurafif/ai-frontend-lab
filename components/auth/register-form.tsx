@@ -1,5 +1,3 @@
-"use client";
-
 // Register form: username/password (+ optional email, full name) against the
 // backend /register endpoint. On success the account is created and the form
 // signs the visitor in automatically (the backend issues tokens only at

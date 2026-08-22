@@ -1,4 +1,3 @@
-"use client";
 
 /**
  * OpenUI (GenUI) rendering for assistant messages.

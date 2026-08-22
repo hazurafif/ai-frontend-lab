@@ -1,12 +1,9 @@
-"use client";
-
-// /login — standalone page (outside the (chat) route group so it never
-// inherits the sidebar shell or the AuthGate). Mount-gated: the auth state
-// is read from localStorage, so the first client render must match the
-// server render (signed out).
+// /login — standalone page (outside the shell layout). The auth state
+// resolves in an effect (status "loading" until then), so no SSR-era mount
+// gate is needed (docs/migration.md: no SSR in this app).
 
 import { MessageSquareIcon } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useNavigate } from "react-router";
 
 import { LoginForm } from "@/components/auth/login-form";
@@ -16,20 +13,14 @@ import { useAuth } from "@/hooks/use-auth";
 export default function LoginPage() {
   const navigate = useNavigate();
   const { isAuthenticated, status } = useAuth();
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
   // Already signed in? Send the visitor back to the app.
   useEffect(() => {
-    if (mounted && isAuthenticated) {
+    if (isAuthenticated) {
       navigate("/", { replace: true });
     }
-  }, [mounted, isAuthenticated, navigate]);
+  }, [isAuthenticated, navigate]);
 
-  if (!mounted || status === "loading" || isAuthenticated) {
+  if (status === "loading" || isAuthenticated) {
     return (
       <div className="flex min-h-dvh items-center justify-center bg-background">
         <Spinner className="size-5 text-muted-foreground" />

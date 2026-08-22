@@ -1,5 +1,3 @@
-"use client";
-
 // App toast helper on top of sonner's native API (the shadcn sonner
 // component styles the Toaster — bg-popover, border, muted description,
 // primary action button). Keeps the call sites' `{description, type, ...}`

@@ -1,5 +1,3 @@
-"use client";
-
 // React Router tree — ports the Next.js App Router structure
 // (docs/migration.md):
 //

@@ -1,5 +1,3 @@
-"use client";
-
 // Settings > Permissions (admin-only — the page only mounts this tab for
 // admins). The tab is organized as titled sections, one per permission
 // area (model access today; tools, knowledge, skills later), so new

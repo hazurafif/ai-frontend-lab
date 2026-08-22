@@ -1,4 +1,3 @@
-"use client";
 
 import { AppWindowIcon, TriangleAlertIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";

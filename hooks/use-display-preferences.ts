@@ -1,5 +1,3 @@
-"use client";
-
 // Reactive chat display preferences (hide thinking / hide tool calls).
 //
 // The backend persists these per-user, but its AI SDK bridge does not apply

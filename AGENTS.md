@@ -233,8 +233,10 @@ nginx.conf.template # prod static serve + same /api/* rewrites (Dockerfile)
 ## Conventions
 
 - **Code style:** biome (line width, imports, organize). Type hints on all
-  public functions; `"use client"` on any file using hooks/events (kept from
-  the Next era — harmless in Vite).
+  public functions. The SSR-era `"use client"` pragmas and dead mount gates
+  were removed (docs/migration.md) — the two remaining mount gates in
+  `shell.tsx`/`messages.tsx` are intentional (they suppress the new-chat
+  greeting flash while an opened chat's history loads).
 - **shadcn skill rules apply** (`.agents/skills/shadcn/SKILL.md`): semantic
   colors only (`bg-card`, `text-muted-foreground`…), `gap-*` not `space-y-*`,
   `size-*` for equal dims, `cn()` for conditional classes, `FieldGroup` +

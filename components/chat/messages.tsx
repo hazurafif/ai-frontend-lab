@@ -1,5 +1,3 @@
-"use client";
-
 import type { UseChatHelpers } from "@ai-sdk/react";
 import { CornerDownRightIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -169,9 +167,9 @@ function PureMessages({
     };
   }, [chatId, lastMessage?.role, lastMessageId, scope, status]);
 
-  // Messages come from localStorage (client-only), so the tree must not be
-  // rendered during SSR/hydration — otherwise server (empty) and client
-  // (history) HTML differ and React logs a hydration mismatch.
+  // Empty-state gate (kept from the SSR era — still useful in CSR): keep
+  // the area blank until the opened chat's history has been determined, so
+  // an existing chat never flashes the new-chat greeting.
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
     setMounted(true);

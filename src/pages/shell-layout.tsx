@@ -1,5 +1,3 @@
-"use client";
-
 // Port of the Next.js (chat) route-group layout (app/(chat)/layout.tsx).
 // Next specifics → client equivalents (docs/migration.md):
 //   - cookies() sidebar state → localStorage
