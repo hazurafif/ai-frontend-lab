@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  CheckIcon,
   PencilIcon,
   PlusIcon,
   RefreshCcwIcon,
@@ -1241,9 +1242,11 @@ function ConnectionsTab() {
         ? {
             apiToken: "", // write-only — never prefill the masked token
             baseUrl: connection.baseUrl ?? "",
-            // PUT is a full replace — carry provider options through so
-            // saving the dialog never drops them (e.g. the embeddings
-            // model name).
+            // PUT is a full replace — carry provider options + enabled
+            // through so saving the dialog never drops them (drops would
+            // silently reset e.g. the embeddings model or re-enable a
+            // disabled connection).
+            enabled: connection.enabled,
             extra: connection.extra,
             isDefault: connection.isDefault,
             kind: connection.kind,
@@ -1252,6 +1255,7 @@ function ConnectionsTab() {
         : {
             apiToken: "",
             baseUrl: "",
+            enabled: true,
             extra: {},
             // First llm connection — default it so the backend unlocks chat
             // (setup.completed needs a default with a token AND a model).
@@ -1549,6 +1553,26 @@ function ConnectionsTab() {
             {draft?.kind === "llm" && (
               <div className="flex items-center justify-between gap-3">
                 <div className="flex flex-col gap-0.5">
+                  <span className="text-sm font-medium">Enabled</span>
+                  <span className="text-[13px] text-muted-foreground">
+                    Disabled connections are skipped when resolving the default
+                    and listing models — flip it back here or in the list.
+                  </span>
+                </div>
+                <Switch
+                  aria-label="Enable connection"
+                  checked={draft.enabled ?? true}
+                  onCheckedChange={(checked) =>
+                    setDraft((current) =>
+                      current ? { ...current, enabled: checked } : current,
+                    )
+                  }
+                />
+              </div>
+            )}
+            {draft?.kind === "llm" && (
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex flex-col gap-0.5">
                   <span className="text-sm font-medium">Use as default</span>
                   <span className="text-[13px] text-muted-foreground">
                     Chat uses this connection. With one llm connection this is
@@ -1635,10 +1659,22 @@ function ConnectionsTab() {
 
 // --- Model tab ----------------------------------------------------------------
 
-function ModelTab({ settings }: { settings: SettingsState }) {
+function ModelTab({
+  settings,
+  setSettings,
+  isAdmin,
+}: {
+  settings: SettingsState;
+  setSettings: (updater: (current: SettingsState) => SettingsState) => void;
+  isAdmin: boolean;
+}) {
   // The active model id (settings.model, seeded from the backend's default
-  // llm connection) — there is no local picker anymore; model selection
-  // lives in the chat input and the default connection's extra.model.
+  // llm connection). The backend default model is a separate concept: it
+  // lives on the default `llm` connection as extra.model (there is no
+  // dedicated endpoint — it's mutated via the admin-only connections CRUD)
+  // and is reported by GET /health as `model`. The "Default model" picker
+  // below saves through updateConnection() and mirrors the result into
+  // settings.model so the chat composer and the backend agree.
   const modelId = settings.model;
   // Per-user enabled-models preference (backend /users/me/preferences):
   // null = no restriction (every model enabled), [] = none. The backend
@@ -1694,6 +1730,102 @@ function ModelTab({ settings }: { settings: SettingsState }) {
     };
   }, []);
 
+  // --- Backend default model (admin-managed) -------------------------------
+  // The backend's default model is the default `llm` connection's
+  // extra.model (`llm_model_name()`), mutated via the admin-only
+  // /connections CRUD — no dedicated "set default model" endpoint exists.
+  // Non-admins can't call /connections (403) and get a read-only view
+  // seeded from GET /health.
+  const [connections, setConnections] = useState<BackendConnection[] | null>(
+    null,
+  );
+  const [healthModel, setHealthModel] = useState<string | null>(null);
+  const [savingDefaultModel, setSavingDefaultModel] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchBackendHealth().then((health) => {
+      if (!cancelled && health) {
+        setHealthModel(health.model ?? null);
+      }
+    });
+    if (!isAdmin) {
+      return;
+    }
+    fetchConnections()
+      .then((list) => {
+        if (!cancelled) {
+          setConnections(list);
+        }
+      })
+      .catch(() => {
+        // Offline backend / not authorized — no connection list; the
+        // hover action reports a warning instead of failing silently.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isAdmin]);
+
+  // The default llm connection (the backend enforces one default per
+  // kind); its extra.model IS the backend default model. Admins only.
+  const defaultConnection = useMemo(
+    () =>
+      connections?.find(
+        (connection) => connection.kind === "llm" && connection.isDefault,
+      ) ?? null,
+    [connections],
+  );
+  // Effective default model id: the connection's extra.model first, then
+  // the backend-reported model (health), then the locally picked one.
+  const defaultModelId = useMemo(() => {
+    if (typeof defaultConnection?.extra?.model === "string") {
+      return defaultConnection.extra.model;
+    }
+    return healthModel ?? modelId;
+  }, [defaultConnection, healthModel, modelId]);
+
+  // Save the backend default model: PUT the default llm connection with
+  // extra.model set (apiToken omitted on purpose — the backend keeps the
+  // stored token). Mirrors into the chat composer's local model so the
+  // composer and the backend default agree once the graph rebuilds.
+  const setDefaultModel = async (id: string) => {
+    if (!defaultConnection) {
+      toast.warning(
+        "No default llm connection — create one in the Connections tab first.",
+      );
+      return;
+    }
+    setSavingDefaultModel(true);
+    try {
+      await updateConnection(defaultConnection.name, {
+        baseUrl: defaultConnection.baseUrl ?? undefined,
+        enabled: defaultConnection.enabled,
+        extra: { ...(defaultConnection.extra ?? {}), model: id },
+        isDefault: true,
+        kind: defaultConnection.kind,
+        name: defaultConnection.name,
+      });
+      setConnections((current) =>
+        current
+          ? current.map((connection) =>
+              connection.name === defaultConnection.name
+                ? { ...connection, extra: { ...connection.extra, model: id } }
+                : connection,
+            )
+          : current,
+      );
+      setSettings((current) => ({ ...current, model: id }));
+      toast.success("Default model set — active on the next run");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to set default model",
+      );
+    } finally {
+      setSavingDefaultModel(false);
+    }
+  };
+
   // Flip one model's switch: turning the first model OFF materializes the
   // full list (null = all enabled) minus that id — the restriction starts.
   const toggleModel = async (id: string, enabled: boolean) => {
@@ -1746,32 +1878,63 @@ function ModelTab({ settings }: { settings: SettingsState }) {
           </p>
         ) : (
           <div className="flex max-h-[32rem] flex-col overflow-y-auto">
-            {models.map((model) => (
-              <div
-                className="flex items-center justify-between gap-4 border-b border-border/60 py-2 last:border-b-0"
-                key={model.id}
-              >
-                <div className="flex min-w-0 flex-col gap-0.5">
-                  <span className="truncate font-mono text-[13px]">
-                    {model.name}
-                  </span>
-                  <span className="truncate text-[12px] text-muted-foreground">
-                    {model.description}
-                  </span>
+            {models.map((model) => {
+              const isDefault = model.id === defaultModelId;
+              return (
+                <div
+                  className="group flex items-center justify-between gap-4 border-b border-border/60 py-2 last:border-b-0"
+                  key={model.id}
+                >
+                  <div className="flex min-w-0 flex-col gap-0.5">
+                    <span className="truncate font-mono text-[13px]">
+                      {model.name}
+                    </span>
+                    <span className="truncate text-[12px] text-muted-foreground">
+                      {model.description}
+                    </span>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    {isDefault && (
+                      <Badge
+                        className="font-mono text-[11px]"
+                        variant="outline"
+                      >
+                        <CheckIcon data-icon="inline-start" />
+                        Default
+                      </Badge>
+                    )}
+                    {/* Admin-only hover action: pick this model as the
+                        backend default (default llm connection extra.model). */}
+                    {isAdmin && !isDefault && (
+                      <Button
+                        aria-label={`Set ${model.id} as default model`}
+                        className="opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+                        disabled={savingDefaultModel}
+                        onClick={() => setDefaultModel(model.id)}
+                        size="sm"
+                        variant="ghost"
+                      >
+                        <CheckIcon data-icon="inline-start" />
+                        Set default
+                      </Button>
+                    )}
+                    <Switch
+                      aria-label={`Enable ${model.id}`}
+                      checked={
+                        !prefsLoaded
+                          ? false
+                          : enabledModels === null ||
+                            enabledModels.includes(model.id)
+                      }
+                      disabled={!prefsLoaded}
+                      onCheckedChange={(checked) =>
+                        toggleModel(model.id, checked)
+                      }
+                    />
+                  </div>
                 </div>
-                <Switch
-                  aria-label={`Enable ${model.id}`}
-                  checked={
-                    !prefsLoaded
-                      ? false
-                      : enabledModels === null ||
-                        enabledModels.includes(model.id)
-                  }
-                  disabled={!prefsLoaded}
-                  onCheckedChange={(checked) => toggleModel(model.id, checked)}
-                />
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
         {prefsLoaded &&
@@ -1947,7 +2110,11 @@ export default function SettingsPage() {
               </TabsContent>
             )}
             <TabsContent value="model">
-              <ModelTab settings={settings} />
+              <ModelTab
+                isAdmin={isAdmin}
+                settings={settings}
+                setSettings={update}
+              />
             </TabsContent>
             {user?.role === "admin" && (
               <TabsContent value="skills">
