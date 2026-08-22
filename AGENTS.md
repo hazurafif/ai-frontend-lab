@@ -27,8 +27,10 @@ npx tsc --noEmit      # type check (biome does NOT type check — run both)
   **read-only**: never edit it, use it only as a reference to check the
   latest backend API (routes, chunk shapes, tool names) when working on the
   frontend contract.
-- **Dev-server trouble:** `pkill -f vite; rm -rf dist; pnpm dev`. Check
-  `/tmp/aifrontend.log` for browser errors.
+- **Dev-server trouble:** `pkill -f vite; rm -rf node_modules/.vite; pnpm dev`
+  (Vite's transform cache; stale `node_modules/.vite` can surface as odd
+  import errors after dependency changes). Check `/tmp/aifrontend.log` for
+  browser errors.
 
 ## Stack (do not mix up)
 
@@ -87,9 +89,11 @@ components/
 hooks/
   use-active-chat.tsx  # useChat wiring + localStorage persistence + edit/delete (ActiveChatContext)
   use-available-models.ts # live model catalog: /api/connections/models → legacy client-side fallback
-  use-messages.tsx     # scroll behavior
-  use-scroll-to-bottom.tsx
+  use-auth.tsx        # AuthProvider (localStorage JWTs; refresh-on-401 via lib/auth.ts)
+  use-display-preferences.ts # hide-reasoning / hide-tool-calls toggles
+  use-mobile.ts       # isMobile media-query hook (used by sidebar/settings)
 lib/
+  chat-transport.ts   # AI SDK transport: uploads, error mapping, regenerate/cancel ({ decision } body data)
   types.ts          # ChatMessage = UIMessage<MessageMetadata>
   models.ts         # chatModels + COMPLETION_PROVIDERS (sync with backend DEEPAGENTS_MODEL)
   models-client.ts  # client-side model listing (replaces the removed /api/models route)
@@ -175,10 +179,14 @@ nginx.conf.template # prod static serve + same /api/* rewrites (Dockerfile)
   /api/chat/threads/{id}`; opening a chat with an empty local cache
   rehydrates messages from `GET /api/chat/threads/{id}/messages` (LangGraph
   dumps → UIMessages via `serverMessagesToChatMessages` in `lib/threads.ts`).
-- **No SSR:** there is no server render to mismatch, so mount-gating code
-  (`useState(false)` + `useEffect(setMounted)`) left over from the Next era
-  is inert-but-harmless. New code doesn't need it; localStorage reads inside
-  effects are still the convention where a value must survive reloads.
+- **No SSR:** there is no server render to mismatch. The dead mount gates
+  were removed in the post-migration cleanup — the only remaining
+  `useState(false)+setMounted(true)` gates are in `shell.tsx` and
+  `messages.tsx`, deliberately: they keep the composer bottom-docked until
+  an opened chat's history has been determined, so an existing chat never
+  flashes the new-chat greeting. New code does not need mount gates;
+  localStorage reads inside effects are still the convention where a value
+  must survive reloads.
 
 ## Settings page
 
@@ -212,8 +220,10 @@ nginx.conf.template # prod static serve + same /api/* rewrites (Dockerfile)
   backend adds the endpoints.
 - `/agent/*` endpoints are **admin-only** on the backend, so the Skills and
   Tools tabs are admin-gated in the UI (same as Users).
-- Tabs: General | Model | Skills | Tools | Account (+ Users for admins).
-  Account shows the profile and self-service password change
+- Tabs: General | Connections (admin) | Model | Agents | Skills | Tools |
+  Knowledge | Account | Permissions (admin) | Users (admin) — non-admins see
+  General, Model, Agents, Skills, Tools, Knowledge, Account. Account shows
+  the profile and self-service password change
   (`POST /api/auth/users/me/password`); Users (admin-only, gated on
   `user.role`) manages accounts via `lib/users.ts`
   (`GET/POST /api/auth/users`, `PATCH/DELETE /api/auth/users/{username}`).
