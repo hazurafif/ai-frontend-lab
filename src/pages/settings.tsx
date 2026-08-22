@@ -13,6 +13,7 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { AccountTab } from "@/components/settings/account-tab";
+import { AgentsTab } from "@/components/settings/agents-tab";
 import { KnowledgeBaseTab } from "@/components/settings/knowledge-base-tab";
 import { PermissionsTab } from "@/components/settings/permissions-tab";
 import {
@@ -73,6 +74,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import type { ChatModel } from "@/lib/models";
 import { fetchPreferences, updatePreferences } from "@/lib/preferences";
 import {
+  type AgentSkillScope,
   createSkill as apiCreateSkill,
   createToolServer as apiCreateToolServer,
   deleteSkill as apiDeleteSkill,
@@ -128,10 +130,12 @@ function SkillsTab({
   settings,
   setSettings,
   backendOnline,
+  scope,
 }: {
   settings: SettingsState;
   setSettings: (updater: (current: SettingsState) => SettingsState) => void;
   backendOnline: boolean;
+  scope: AgentSkillScope;
 }) {
   const [editing, setEditing] = useState<Skill | null>(null);
   const [draft, setDraft] = useState<Skill | null>(null);
@@ -241,19 +245,19 @@ function SkillsTab({
     try {
       if (backendOnline) {
         if (isNew) {
-          await apiCreateSkill(skill);
+          await apiCreateSkill(skill, scope);
         } else {
-          await apiUpdateSkill(originalName, skill);
+          await apiUpdateSkill(originalName, skill, scope);
           if (originalName !== name) {
             // Backend PUT keys the entry by body.name — drop the stale key.
-            await apiDeleteSkill(originalName);
+            await apiDeleteSkill(originalName, scope);
           }
           // PUT keeps unlisted bundled files — explicitly remove the ones
           // deleted in the editor.
           const failed: string[] = [];
           for (const path of new Set(removedFiles)) {
             try {
-              await apiDeleteSkillFile(name, path);
+              await apiDeleteSkillFile(name, path, scope);
             } catch {
               failed.push(path);
             }
@@ -292,7 +296,7 @@ function SkillsTab({
   const deleteSkill = async (name: string) => {
     try {
       if (backendOnline) {
-        await apiDeleteSkill(name);
+        await apiDeleteSkill(name, scope);
       }
     } catch (error) {
       toast.error(
@@ -2116,15 +2120,20 @@ export default function SettingsPage() {
                 setSettings={update}
               />
             </TabsContent>
-            {user?.role === "admin" && (
-              <TabsContent value="skills">
-                <SkillsTab
-                  settings={settings}
-                  setSettings={update}
-                  backendOnline={backendOnline}
-                />
-              </TabsContent>
-            )}
+            <TabsContent value="agents">
+              <AgentsTab
+                isAdmin={isAdmin}
+                skillScope={isAdmin ? "agent" : "user"}
+              />
+            </TabsContent>
+            <TabsContent value="skills">
+              <SkillsTab
+                settings={settings}
+                setSettings={update}
+                backendOnline={backendOnline}
+                scope={isAdmin ? "agent" : "user"}
+              />
+            </TabsContent>
             <TabsContent value="tools">
               <ToolsTab
                 settings={settings}

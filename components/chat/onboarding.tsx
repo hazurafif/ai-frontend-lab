@@ -11,8 +11,8 @@
 // so an offline backend never blocks the chat UI.
 
 import { RefreshCcwIcon } from "lucide-react";
-import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -102,7 +102,7 @@ function OnboardingScreen({
   onDone: () => void;
 }) {
   const { user } = useAuth();
-  const router = useRouter();
+  const navigate = useNavigate();
   const isAdmin = user?.role === "admin";
 
   return (
@@ -123,7 +123,7 @@ function OnboardingScreen({
                 Later
               </Button>
               <Button
-                onClick={() => router.push("/settings?tab=connections")}
+                onClick={() => navigate("/settings?tab=connections")}
                 type="button"
               >
                 Add connection

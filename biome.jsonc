@@ -8,14 +8,14 @@
     "includes": [
       "**/*",
       "!.next",
-      "!.next",
+      "!dist",
       "!node_modules",
       "!node_modules",
       "!.pi-subagents",
       "!genui-spec",
       "!components/ai-elements",
       "!components/ui",
-      "!app/globals.css",
+      "!src/globals.css",
       "!lib/utils.ts",
       "!hooks/use-mobile.ts"
     ]

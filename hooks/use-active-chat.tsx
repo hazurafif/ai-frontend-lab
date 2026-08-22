@@ -2,7 +2,6 @@
 
 import type { UseChatHelpers } from "@ai-sdk/react";
 import { useChat } from "@ai-sdk/react";
-import { usePathname, useRouter } from "next/navigation";
 import {
   createContext,
   type Dispatch,
@@ -16,6 +15,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { useLocation, useNavigate } from "react-router";
 import { toast } from "@/components/chat/toast";
 import { UploadChatTransport } from "@/hooks/chat-transport";
 import { useAuth } from "@/hooks/use-auth";
@@ -26,6 +26,7 @@ import { loadHistory, saveHistory } from "@/lib/chat/history";
 import { AttachMerger, isAttachTerminalEvent } from "@/lib/chat/message-merge";
 import { readSSE } from "@/lib/chat/sse";
 import { HISTORY_CHANGED_EVENT } from "@/lib/constants";
+import { BASE_PATH } from "@/lib/env";
 import { ChatbotError } from "@/lib/errors";
 import { DEFAULT_CHAT_MODEL } from "@/lib/models";
 import { DEFAULT_SETTINGS, type ThinkingEffort } from "@/lib/settings";
@@ -174,8 +175,8 @@ function extractChatId(pathname: string): string | null {
 // --- provider ----------------------------------------------------------------
 
 export function ActiveChatProvider({ children }: { children: ReactNode }) {
-  const pathname = usePathname();
-  const router = useRouter();
+  const pathname = useLocation().pathname;
+  const navigate = useNavigate();
   const { isAuthenticated, user } = useAuth();
   const { markThreadRunning, markThreadStale, setActiveThreadId, statuses } =
     useThreads();
@@ -250,7 +251,7 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
         }
       },
       transport: new UploadChatTransport({
-        api: `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/api/chat`,
+        api: `${BASE_PATH}/api/chat`,
         fetch: fetchWithErrorHandlers,
         prepareSendMessagesRequest(request) {
           return {
@@ -627,14 +628,14 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
       stopRef.current();
     }
     if (chatIdFromUrl) {
-      router.push("/");
+      navigate("/");
       return;
     }
     setNewChatId(generateUUID());
     setMessages([]);
     setInput("");
     setHistoryLoading(false);
-  }, [chatIdFromUrl, router, setInput, setMessages]);
+  }, [chatIdFromUrl, navigate, setInput, setMessages]);
 
   // Stop generation client-side AND abort the server-side run, so the agent
   // actually stops (the client abort alone only closes the stream).
@@ -763,7 +764,7 @@ export function ActiveChatProvider({ children }: { children: ReactNode }) {
 
       try {
         await readSSE(
-          `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/api/chat`,
+          `${BASE_PATH}/api/chat`,
           (_event, data) => {
             // Chat switched while resuming — stop merging (the server run
             // keeps going; history is persisted server-side).

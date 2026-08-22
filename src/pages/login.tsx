@@ -6,15 +6,15 @@
 // server render (signed out).
 
 import { MessageSquareIcon } from "lucide-react";
-import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router";
 
 import { LoginForm } from "@/components/auth/login-form";
 import { Spinner } from "@/components/ui/spinner";
 import { useAuth } from "@/hooks/use-auth";
 
 export default function LoginPage() {
-  const router = useRouter();
+  const navigate = useNavigate();
   const { isAuthenticated, status } = useAuth();
   const [mounted, setMounted] = useState(false);
 
@@ -25,9 +25,9 @@ export default function LoginPage() {
   // Already signed in? Send the visitor back to the app.
   useEffect(() => {
     if (mounted && isAuthenticated) {
-      router.replace("/");
+      navigate("/", { replace: true });
     }
-  }, [mounted, isAuthenticated, router]);
+  }, [mounted, isAuthenticated, navigate]);
 
   if (!mounted || status === "loading" || isAuthenticated) {
     return (

@@ -5,8 +5,8 @@
 // Alert).
 
 import { TriangleAlertIcon } from "lucide-react";
-import { useRouter, useSearchParams } from "next/navigation";
 import { type FormEvent, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
@@ -23,8 +23,8 @@ import { Spinner } from "@/components/ui/spinner";
 import { useAuth } from "@/hooks/use-auth";
 
 export function LoginForm() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { login } = useAuth();
 
   const [username, setUsername] = useState("");
@@ -42,8 +42,7 @@ export function LoginForm() {
     setPending(true);
     try {
       await login(username.trim(), password);
-      router.replace(searchParams.get("next") ?? "/");
-      router.refresh();
+      navigate(searchParams.get("next") ?? "/", { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Sign in failed.");
       setPending(false);

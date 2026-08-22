@@ -1,5 +1,5 @@
 import { WifiOffIcon } from "lucide-react";
-import Link from "next/link";
+import { Link } from "react-router";
 import { Button } from "@/components/ui/button";
 
 export default function OfflinePage() {
@@ -17,7 +17,7 @@ export default function OfflinePage() {
           try again.
         </p>
       </div>
-      <Button render={<Link href="/" />}>
+      <Button render={<Link to="/" />}>
         <WifiOffIcon data-icon="inline-start" />
         Retry
       </Button>

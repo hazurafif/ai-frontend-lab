@@ -1,5 +1,12 @@
 @layer theme, base, openui, components, utilities;
 @import "tailwindcss";
+/* Framework swap (docs/migration.md): Geist is bundled via
+   @fontsource-variable/geist{,-mono} instead of next/font/google. The CSS
+   vars keep the old names so nothing else changes. */
+:root {
+  --font-geist: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-geist-mono: "Geist Mono Variable", ui-monospace, "SF Mono", monospace;
+}
 /* OpenUI (GenUI) component styles — layered so Tailwind's component and
    utility classes can override them (docs: put these imports in the one
    global entry point, keep the layer-order line above everything). */
@@ -13,6 +20,8 @@
 @plugin "@tailwindcss/typography";
 
 @theme inline {
+  --font-sans: var(--font-geist);
+  --font-mono: var(--font-geist-mono);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);

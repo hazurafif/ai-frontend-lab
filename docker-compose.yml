@@ -2,7 +2,7 @@ services:
   web:
     build: .
     ports:
-      - "3000:3000"
+      - "3000:80"
     environment:
       # Backend runs on the host (ai-backend-lab: uvicorn on :8000).
       BACKEND_URL: ${BACKEND_URL:-http://host.docker.internal:8000}

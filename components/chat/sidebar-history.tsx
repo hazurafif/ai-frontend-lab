@@ -1,8 +1,8 @@
 "use client";
 
 import { isToday, isYesterday, subMonths, subWeeks } from "date-fns";
-import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
+import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 import {
   AlertDialog,
@@ -94,8 +94,8 @@ export function SidebarHistory({
   searchQuery?: string;
 }) {
   const { setOpenMobile } = useSidebar();
-  const pathname = usePathname();
-  const router = useRouter();
+  const pathname = useLocation().pathname;
+  const navigate = useNavigate();
   const { isAuthenticated, user } = useAuth();
   const { seedThreads, statuses } = useThreads();
   // localStorage scope for the sidebar cache (per signed-in user; "guest"
@@ -177,7 +177,7 @@ export function SidebarHistory({
     setShowDeleteDialog(false);
 
     if (isCurrentChat) {
-      router.replace("/");
+      navigate("/", { replace: true });
     }
 
     setHistory((current) => current.filter((chat) => chat.id !== chatToDelete));
@@ -194,7 +194,7 @@ export function SidebarHistory({
     }
 
     toast.success("Chat deleted");
-  }, [deleteId, history, isAuthenticated, pathname, router, scope]);
+  }, [deleteId, history, isAuthenticated, pathname, navigate, scope]);
 
   const handleShowDeleteDialog = useCallback((chatId: string) => {
     setDeleteId(chatId);

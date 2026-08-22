@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en" class="">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover"
+    />
+    <title>AI Chat</title>
+    <meta name="description" content="AI chat frontend built with the AI SDK." />
+    <meta name="application-name" content="AI Chat" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="AI Chat" />
+    <meta name="format-detection" content="telephone=no" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icons/icon-192.png" type="image/png" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <!-- Social preview images (static — the Next App Router convention was
+         server-generated; a static SPA can only ship fixed OG art, see
+         docs/migration.md). -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="AI Chat" />
+    <meta
+      property="og:description"
+      content="AI chat frontend built with the AI SDK."
+    />
+    <meta property="og:image" content="/og-image.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta property="twitter:image" content="/twitter-image.png" />
+    <script>
+      (() => {
+        var html = document.documentElement;
+        var meta = document.querySelector('meta[name="theme-color"]');
+        if (!meta) {
+          meta = document.createElement("meta");
+          meta.setAttribute("name", "theme-color");
+          document.head.appendChild(meta);
+        }
+        function updateThemeColor() {
+          var isDark = html.classList.contains("dark");
+          meta.setAttribute(
+            "content",
+            isDark ? "hsl(240deg 10% 3.92%)" : "hsl(0 0% 100%)",
+          );
+        }
+        var observer = new MutationObserver(updateThemeColor);
+        observer.observe(html, {
+          attributes: true,
+          attributeFilter: ["class"],
+        });
+        updateThemeColor();
+      })();
+    </script>
+  </head>
+  <body class="antialiased">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

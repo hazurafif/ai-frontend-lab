@@ -3,14 +3,14 @@
 // Redirects signed-out visitors to /login. Mount-gated so the server render
 // (no token yet) matches the client's first render.
 
-import { useRouter } from "next/navigation";
 import { type ReactNode, useEffect, useState } from "react";
+import { useNavigate } from "react-router";
 
 import { Spinner } from "@/components/ui/spinner";
 import { useAuth } from "@/hooks/use-auth";
 
 export function AuthGate({ children }: { children: ReactNode }) {
-  const router = useRouter();
+  const navigate = useNavigate();
   const { isAuthenticated, status } = useAuth();
   const [mounted, setMounted] = useState(false);
 
@@ -20,9 +20,9 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (mounted && !isAuthenticated) {
-      router.replace("/login");
+      navigate("/login", { replace: true });
     }
-  }, [mounted, isAuthenticated, router]);
+  }, [mounted, isAuthenticated, navigate]);
 
   // Not mounted yet, or the auth check is still running: render a neutral
   // fallback instead of flashing the chat UI at a signed-out visitor.

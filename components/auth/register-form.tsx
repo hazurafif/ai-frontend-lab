@@ -6,8 +6,8 @@
 // /login, so we call login() with the same credentials).
 
 import { TriangleAlertIcon } from "lucide-react";
-import { useRouter } from "next/navigation";
 import { type FormEvent, useState } from "react";
+import { useNavigate } from "react-router";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
@@ -31,7 +31,7 @@ import { useAuth } from "@/hooks/use-auth";
 const USERNAME_RE = /^[a-zA-Z0-9_]+$/;
 
 export function RegisterForm() {
-  const router = useRouter();
+  const navigate = useNavigate();
   const { login } = useAuth();
 
   const [username, setUsername] = useState("");
@@ -86,8 +86,7 @@ export function RegisterForm() {
 
       // Account created — sign in with the same credentials.
       await login(username.trim(), password);
-      router.replace("/");
-      router.refresh();
+      navigate("/", { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Registration failed.");
       setPending(false);

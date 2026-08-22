@@ -187,7 +187,7 @@ config keys.
 
 ## 5. Frontend changes (done)
 
-1. **`app/api/mcp/[[...path]]/route.ts`** — copy of the agent proxy pattern:
+1. **the `/api/mcp/*` proxy rewrite** (vite.config.ts / nginx — formerly `app/api/mcp/[[...path]]/route.ts`):
    maps `/api/mcp/*` → `/mcp/*` on `BACKEND_URL`, forwards headers (JWT
    included), streams the response; 503 when the backend is unreachable.
 2. **`components/ai-elements/prefab-app.tsx`** — advertises

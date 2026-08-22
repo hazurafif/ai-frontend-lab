@@ -19,7 +19,7 @@ export type ShareResult = {
   url: string;
 };
 
-const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+import { BASE_PATH } from "@/lib/env";
 
 export async function createChatShare(chatId: string): Promise<ShareResult> {
   const response = await fetch(`${BASE_PATH}/api/share/${chatId}`, {

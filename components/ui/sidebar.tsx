@@ -25,8 +25,7 @@ import {
 } from "@/components/ui/tooltip"
 import { PanelLeftIcon } from "lucide-react"
 
-const SIDEBAR_COOKIE_NAME = "sidebar_state"
-const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7
+const SIDEBAR_STORAGE_KEY = "sidebar_state"
 const SIDEBAR_WIDTH = "16rem"
 const SIDEBAR_WIDTH_MOBILE = "18rem"
 const SIDEBAR_WIDTH_ICON = "3rem"
@@ -80,7 +79,13 @@ function SidebarProvider({
         _setOpen(openState)
       }
 
-      document.cookie = `${SIDEBAR_COOKIE_NAME}=${openState}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}`
+      // Framework swap (docs/migration.md): the Next layout persisted the
+      // collapsed state in a cookie; a SPA has no server, so localStorage.
+      try {
+        window.localStorage.setItem(SIDEBAR_STORAGE_KEY, String(openState))
+      } catch {
+        // storage unavailable — the toggle just won't survive a reload
+      }
     },
     [setOpenProp, open]
   )

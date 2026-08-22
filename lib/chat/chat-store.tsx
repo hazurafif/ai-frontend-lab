@@ -18,7 +18,6 @@
 // The sidebar renders spinners from `statuses`; the notification listener
 // toasts terminal events of background threads.
 
-import { useRouter } from "next/navigation";
 import {
   createContext,
   type ReactNode,
@@ -29,6 +28,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { useNavigate } from "react-router";
 import { toast } from "@/components/chat/toast";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -151,7 +151,7 @@ function terminalToast(notification: ThreadNotification): {
 }
 
 export function ThreadsProvider({ children }: { children: ReactNode }) {
-  const router = useRouter();
+  const navigate = useNavigate();
   const { user } = useAuth();
   const username = user?.username ?? null;
 
@@ -299,13 +299,13 @@ export function ThreadsProvider({ children }: { children: ReactNode }) {
       }
       const threadId = notification.thread_id;
       const openThread = () =>
-        router.push(`/chat/${encodeURIComponent(threadId)}`);
+        navigate(`/chat/${encodeURIComponent(threadId)}`);
       toast({
         ...terminalToast(notification),
         action: { label: "Open", onClick: openThread },
       });
     },
-    [router, username],
+    [navigate, username],
   );
 
   const runningThreads = useMemo(

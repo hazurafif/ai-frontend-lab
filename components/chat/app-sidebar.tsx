@@ -13,10 +13,9 @@ import {
   TrashIcon,
   XIcon,
 } from "lucide-react";
-import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
 import { useCallback, useEffect, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 import { SidebarHistory } from "@/components/chat/sidebar-history";
 import {
@@ -83,8 +82,8 @@ function accountInitials(user: AuthUser): string {
 }
 
 export function AppSidebar() {
-  const router = useRouter();
-  const pathname = usePathname();
+  const navigate = useNavigate();
+  const pathname = useLocation().pathname;
   const { setOpenMobile, toggleSidebar } = useSidebar();
   const { resolvedTheme, setTheme } = useTheme();
   const { deleteAllChats, newChat } = useActiveChat();
@@ -144,19 +143,19 @@ export function AppSidebar() {
       const scope = storageScope(user?.username);
       const lastId = window.localStorage.getItem(lastActiveStorageKey(scope));
       if (lastId && isAuthenticated) {
-        router.push(`/chat/${lastId}`);
+        navigate(`/chat/${lastId}`);
         return;
       }
       const history = loadHistory(scope);
       if (lastId && history.some((chat) => chat.id === lastId)) {
-        router.push(`/chat/${lastId}`);
+        navigate(`/chat/${lastId}`);
         return;
       }
     } catch {
       // malformed cache — fall through to the home composer
     }
-    router.push("/");
-  }, [isAuthenticated, router, setOpenMobile, user]);
+    navigate("/");
+  }, [isAuthenticated, navigate, setOpenMobile, user]);
 
   const handleShowDeleteAllDialog = useCallback(() => {
     setShowDeleteAllDialog(true);
@@ -164,7 +163,7 @@ export function AppSidebar() {
 
   const handleDeleteAll = useCallback(() => {
     setShowDeleteAllDialog(false);
-    router.replace("/");
+    navigate("/", { replace: true });
     // Authenticated: the promise settles when the backend delete lands —
     // only then toast success (or surface the failure). Guest: the local
     // wipe is synchronous.
@@ -178,7 +177,7 @@ export function AppSidebar() {
     } else {
       toast.success("All chats deleted");
     }
-  }, [deleteAllChats, router]);
+  }, [deleteAllChats, navigate]);
 
   const handleToggleTheme = useCallback(() => {
     setTheme(resolvedTheme === "dark" ? "light" : "dark");
@@ -186,13 +185,13 @@ export function AppSidebar() {
 
   const handleGoToSettings = useCallback(() => {
     setOpenMobile(false);
-    router.push("/settings");
-  }, [router, setOpenMobile]);
+    navigate("/settings");
+  }, [navigate, setOpenMobile]);
 
   const handleLogout = useCallback(() => {
     logout();
-    router.push("/login");
-  }, [logout, router]);
+    navigate("/login");
+  }, [logout, navigate]);
 
   return (
     <>
@@ -203,7 +202,7 @@ export function AppSidebar() {
               <div className="group/logo relative flex items-center justify-center">
                 <SidebarMenuButton
                   className="size-8 !px-0 items-center justify-center group-data-[collapsible=icon]:invisible"
-                  render={<Link href="/" onClick={closeMobile} />}
+                  render={<Link to="/" onClick={closeMobile} />}
                   tooltip="Chatbot"
                 >
                   <MessageSquareIcon className="size-4 text-sidebar-foreground/50" />
@@ -453,7 +452,7 @@ export function AppSidebar() {
               <SidebarMenuItem>
                 <SidebarMenuButton
                   className="h-8 rounded-lg text-sidebar-foreground/60 transition-colors duration-150 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
-                  render={<Link href="/settings" onClick={closeMobile} />}
+                  render={<Link to="/settings" onClick={closeMobile} />}
                   tooltip="Settings"
                 >
                   <SettingsIcon className="size-4" />

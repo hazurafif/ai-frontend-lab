@@ -4,14 +4,14 @@ Project conventions for AI agents and humans working in this repository.
 
 ## Project overview
 
-AI Frontend Lab: a frontend-only AI chat application (Next.js + Vercel AI SDK)
+AI Frontend Lab: a frontend-only AI chat application (Vite + React Router + Vercel AI SDK). Migrated from Next.js — see `docs/migration.md` for the framework-swap decisions and the API path-mapping table.
 
 ## Commands
 
 ```bash
-pnpm dev              # dev server (Next.js 16 + Turbopack), http://localhost:3000
-pnpm build            # production build
-pnpm start            # serve production build
+pnpm dev              # Vite dev server (+ /api → backend proxy), http://localhost:3000
+pnpm build            # tsc --noEmit && production build → dist/
+pnpm start            # vite preview (serves dist/ with the same /api proxy)
 pnpm check            # biome check (lint + format + organize imports)
 pnpm fix              # biome check --write (auto-fix)
 npx tsc --noEmit      # type check (biome does NOT type check — run both)
@@ -19,19 +19,22 @@ npx tsc --noEmit      # type check (biome does NOT type check — run both)
 
 - **Before every commit:** `pnpm check`, `npx tsc --noEmit`, and a manual
   smoke test in the browser.
-- **Backend:** the chat proxy expects the FastAPI backend at
-  `BACKEND_URL` (`.env.local`, default `http://localhost:8000`). The backend
-  source lives in the sibling repo `../ai-backend-lab` — **read-only**:
-  never edit it, use it only as a reference to check the latest backend API
-  (routes, chunk shapes, tool names) when working on the frontend contract.
-- **Dev-server cache corruption:** Turbopack's HMR cache breaks after
-  runtime errors during Fast Refresh (stale `X is not defined` errors that
-  persist after the code is fixed). Fix: `pkill -f "next dev"; rm -rf .next; pnpm dev`.
-  Check `/tmp/aifrontend.log` for browser errors.
+- **Backend:** the app proxies `/api/*` to the FastAPI backend at
+  `BACKEND_URL` (`.env.local`, default `http://localhost:8000`). Dev proxy
+  rewrites live in `vite.config.ts` (`rewriteApiPath`); production mirrors
+  them in `nginx.conf.template`. Keep both in sync when touching API paths.
+  The backend source lives in the sibling repo `../ai-backend-lab` —
+  **read-only**: never edit it, use it only as a reference to check the
+  latest backend API (routes, chunk shapes, tool names) when working on the
+  frontend contract.
+- **Dev-server trouble:** `pkill -f vite; rm -rf dist; pnpm dev`. Check
+  `/tmp/aifrontend.log` for browser errors.
 
 ## Stack (do not mix up)
 
-- **Next.js 16.2.10** App Router + Turbopack, **React 19**, TypeScript, Tailwind v4.
+- **Vite 8 + React 19** (no SSR — pure client render), **React Router v8**
+  (routes in `src/router.tsx`), TypeScript, Tailwind v4
+  (`@tailwindcss/vite` plugin; `src/globals.css`).
 - **Package manager: pnpm** (never npm/yarn). Lockfile: `pnpm-lock.yaml`.
 - **shadcn/ui** preset `maia` (components.json: `style: radix-maia`,
   `base: radix`, icons: lucide). Official shadcn skills live in
@@ -39,15 +42,21 @@ npx tsc --noEmit      # type check (biome does NOT type check — run both)
   (styling, forms, composition, chat) when touching UI.
 - **Vercel AI SDK v7** (`ai` 7.x + `@ai-sdk/react` 4.x): `useChat` +
   `DefaultChatTransport` speaking the AI SDK data-stream protocol.
+- **PWA:** Serwist via `@serwist/vite` (worker `sw.ts`, offline page at
+  `/offline`). No React StrictMode (Vite default) — the prefab host's
+  AbortController was written to survive double-invoke; single is fine.
+- **Env vars:** `VITE_*` only (`lib/env.ts` exports `BASE_PATH` from
+  `VITE_BASE_PATH`). Secrets cannot live in the bundle — anything secret
+  must go through backend connections/settings.
 
 ### UI primitive libraries — important nuance
 
-| Library                     | Used by                                                                                                                                                                          |
-| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `radix-ui` (single package) | alert-dialog, badge, button, button-group, collapsible, dialog, dropdown-menu, hover-card, label, popover, scroll-area, select, separator, sheet, sidebar, switch, tabs, tooltip |
-| `@base-ui/react`            | **combobox only**                                                                                                                                                                |
-| `cmdk`                      | command                                                                                                                                                                          |
-| plain React                 | field (FieldGroup/Field), input, input-group, table, textarea, skeleton, spinner                                                                                                 |
+| Library                     | Used by                                                                                                                                                                                                                          |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `radix-ui` (single package) | alert-dialog, badge, button, button-group, collapsible, dialog, dropdown-menu, hover-card, label, popover, scroll-area, select, separator, sheet, sidebar, switch, tabs, tooltip                                                  |
+| `@base-ui/react`            | **combobox only**                                                                                                                                                                                                                |
+| `cmdk`                      | command                                                                                                                                                                                                                          |
+| plain React                 | field (FieldGroup/Field), input, input-group, table, textarea, skeleton, spinner                                                                                                                                                 |
 
 - Most components use `radix-ui`; **the combobox is Base UI** and has a
   different API (Base UI `Combobox.Item` must NOT be wrapped in `ComboboxLabel`
@@ -65,44 +74,41 @@ npx tsc --noEmit      # type check (biome does NOT type check — run both)
 ## Project structure
 
 ```
-app/
-  (chat)/              # route group: sidebar shell layout + pages
-    layout.tsx         # SidebarProvider + ActiveChatProvider + AppSidebar + ChatShellRoute
-    page.tsx           # "/" — renders null (ChatShellRoute provides the UI)
-    chat/[id]/page.tsx # conversation route — renders null
-    settings/page.tsx  # /settings — vertical tabs: General | Model | Skills | Tools
-  api/
-    chat/route.ts      # proxy POST/GET/DELETE /api/chat → BACKEND_URL + BACKEND_CHAT_PATH
-    health/route.ts    # proxy GET /api/health → backend /health (live settings state)
-    models/route.ts    # GET/POST /api/models → {base}/models of a completion source (env source or {provider, baseUrl, apiKey} connection body)
+src/
+  main.tsx          # entry: fonts, providers (Theme/Auth/Tooltip/Serwist reg) + RouterProvider
+  router.tsx        # route tree: /login, /register, shell-layout (auth-gated: /,
+                    #  /chat/:id, /settings), /share/:shareId, /offline, * → /
+  pages/            # login, register, settings (lazy-loaded), shared-chat, offline, shell-layout
+  globals.css       # Tailwind v4 + OpenUI layered styles (+ --font-geist vars)
 components/
-  chat/                # app UI: shell, shell-route, messages, message, sidebar, history, input
-  ai-elements/         # message primitives, tool-card, subagent-card, shimmer, model-selector
-  ui/                  # shadcn/ui components (source, never edit registry files by hand — use CLI)
+  chat/             # app UI: shell, messages, message, sidebar, history, input
+  ai-elements/      # message primitives, tool-card, subagent-card, shimmer, model-selector, prefab-app, genui
+  ui/               # shadcn/ui components (source, never edit registry files by hand — use CLI)
 hooks/
   use-active-chat.tsx  # useChat wiring + localStorage persistence + edit/delete (ActiveChatContext)
-  use-available-models.ts # fetches /api/models using the saved modelConnection (settings) or the env source; null → fall back to chatModels
+  use-available-models.ts # live model catalog: /api/connections/models → legacy client-side fallback
   use-messages.tsx     # scroll behavior
   use-scroll-to-bottom.tsx
 lib/
-  types.ts             # ChatMessage = UIMessage<MessageMetadata>
-  models.ts            # chatModels list (id/name/description) — sync with backend DEEPAGENTS_MODEL; chatModelsFromSource(prefix, raw /v1/models ids) → `provider:model` ids; COMPLETION_PROVIDERS presets (default/openai/gemini/custom)
-  settings.ts          # settings state + localStorage persistence + health types; modelConnection selects the completion source (null = server env)
-  settings.ts          # settings state + localStorage persistence + health types
-  constants.ts         # localStorage keys
-  utils.ts             # cn, getTextFromMessage, sanitizeText, generateUUID, ...
+  types.ts          # ChatMessage = UIMessage<MessageMetadata>
+  models.ts         # chatModels + COMPLETION_PROVIDERS (sync with backend DEEPAGENTS_MODEL)
+  models-client.ts  # client-side model listing (replaces the removed /api/models route)
+  settings.ts       # settings state + localStorage persistence + health types
+  env.ts            # BASE_PATH (VITE_BASE_PATH)
+  constants.ts      # localStorage keys
+  utils.ts          # cn, getTextFromMessage, sanitizeText, generateUUID, ...
+  threads.ts        # thread API client (/api/chat/threads...) + LangGraph dumps → UIMessages
+  auth.ts           # fetchWithAuth (Bearer + one refresh-on-401 retry)
+sw.ts               # Serwist worker (built by @serwist/vite; precaches dist/)
+vite.config.ts      # dev/preview proxy /api/* → BACKEND_URL with path rewrites
+nginx.conf.template # prod static serve + same /api/* rewrites (Dockerfile)
 ```
-
-- `(chat)/layout.tsx` renders `ChatShellRoute` (chat UI) **only** on `/` and
-  `/chat/[id]`; other pages (settings) render their own content. Never mount
-  `ChatShell` globally.
-- Route group is `app/(chat)/` — new pages go inside it to inherit the shell.
 
 ## Chat architecture & backend contract
 
 - `useChat` (in `use-active-chat.tsx`) sends to `/api/chat` (proxied to
-  backend): `{ id: <chat uuid>, messages: UIMessage[], selectedChatModel }`.
-  The chat id is reused as the backend thread id.
+  backend via `vite.config.ts`): `{ id: <chat uuid>, messages: UIMessage[],
+  selectedChatModel }`. The chat id is reused as the backend thread id.
 - Backend responds with the AI SDK data-stream protocol: SSE `data: <json>`
   chunks — `start` (unique `messageId` per response), `text-start/delta/end`,
   `tool-input-start/delta/available`, `tool-output-available/error`, `custom`
@@ -111,6 +117,15 @@ lib/
   input-available → output-available/error) → rendered by
   `components/ai-elements/tool-card.tsx`. Subagents arrive as `custom` parts
   → `components/ai-elements/subagent-card.tsx`.
+- **API mapping:** the browser only ever calls same-origin `/api/*`; the
+  rewrite table (browser path → backend path) lives in `vite.config.ts`
+  `rewriteApiPath` and `nginx.conf.template` — see `docs/migration.md`.
+  Notable rewrites: `/api/chat/threads*` → `/threads*`,
+  `/api/chat/notifications*` → `/notifications*`, `/api/auth/login` →
+  `/login`, `/api/auth/users*` → `/users*`, `/api/preferences` →
+  `/users/me/preferences`, `/api/setup` GET → `/users/me/setup` + POST →
+  `/users/me/onboarding`, `/api/share/shared/<t>` → `/shared/<t>`,
+  `/api/share/<id>` → `/threads/<id>/share`, everything else strips `/api`.
 - **FastMCP prefab apps:** tools marked `app=True` return their UI as a
   `structuredContent` envelope (`{view, state, _meta}`); via langchain's
   MCP adapter it arrives in `tool-output-available` as
@@ -120,19 +135,14 @@ lib/
   `PREFAB_RENDERER_VERSION` in sync with the servers' `prefab-ui` package)
   inside a sandboxed iframe speaking the MCP Apps postMessage protocol
   (`ui/initialize` → `ui/notifications/tool-result` → `size-changed`).
-  Prefab outputs render as an **inline app block** in the message flow
-  (`PrefabAppCard` + `ToolPart` routing in `components/chat/message.tsx`),
-  not inside the collapsible tool card — the MCP Apps extension's intended
-  presentation. App-initiated `tools/call` (interactive apps, e.g.
-  FastMCPApp backends) is forwarded by the host through
-  `app/api/mcp/[[...path]]` to the backend's `POST /mcp/tools/call` proxy
-  and the CallToolResult is handed back to the renderer verbatim; unknown
-  tools surface as `isError`. Backend contract: `{name, arguments,
-  server_hint?}` → `{content, structuredContent, isError}` (404/502 on
-  failures). Note: Next dev enables React StrictMode by default — the host's
-  AbortController is created inside the effect (per setup) so StrictMode's
-  setup→cleanup→setup can't abort it, and tool-result re-pushes compare
-  envelope CONTENT (JSON), not object reference (chat re-creates parts).
+  App-initiated `tools/call` is forwarded by the host through
+  `/api/mcp/...` to the backend's `POST /mcp/tools/call` proxy and the
+  CallToolResult is handed back to the renderer verbatim; unknown tools
+  surface as `isError`. Backend contract: `{name, arguments, server_hint?}`
+  → `{content, structuredContent, isError}` (404/502 on failures). No
+  StrictMode means the host's per-setup AbortController lives simply; the
+  tool-result re-push compares envelope CONTENT (JSON), not object
+  reference (chat re-creates parts).
 - **GenUI (OpenUI Lang):** assistant text that is (or looks like) OpenUI
   Lang — starts with a statement (`root = ...`, `$var = ...`) or a fenced
   ```` ```openui ```` block — is rendered by
@@ -161,22 +171,21 @@ lib/
   thread via `/api/chat`. Stopping generation also POSTs
   `/api/chat/threads/{id}/cancel` so the server-side run actually aborts.
 - History: sidebar merges `GET /api/chat/threads` with the localStorage
-  cache (server wins); delete/rename call `DELETE/PATCH /api/chat/threads/{id}`;
-  opening a chat with an empty local cache rehydrates messages from
-  `GET /api/chat/threads/{id}/messages` (LangGraph dumps → UIMessages via
-  `serverMessagesToChatMessages` in `lib/threads.ts`).
-- **Hydration rule:** anything read from localStorage (chat history, messages,
-  settings) or fetched client-side (health) must be **mount-gated**
-  (`useState(false)` + `useEffect(() => setMounted(true))`) so the server
-  render (empty) matches the client's first render. Skipping this produces
-  hydration-mismatch errors.
+  cache (server wins); delete/rename call `DELETE/PATCH
+  /api/chat/threads/{id}`; opening a chat with an empty local cache
+  rehydrates messages from `GET /api/chat/threads/{id}/messages` (LangGraph
+  dumps → UIMessages via `serverMessagesToChatMessages` in `lib/threads.ts`).
+- **No SSR:** there is no server render to mismatch, so mount-gating code
+  (`useState(false)` + `useEffect(setMounted)`) left over from the Next era
+  is inert-but-harmless. New code doesn't need it; localStorage reads inside
+  effects are still the convention where a value must survive reloads.
 
 ## Settings page
 
 - `/settings` is a **client-side page**: values persist to localStorage
   (`app-settings`) and initial values load from `/api/health`. Skills and
   MCP tool servers are **live** — they sync to the backend's `/agent/skills`
-  and `/agent/tools` CRUD via the `app/api/agent/[[...path]]` proxy (backend
+  and `/agent/tools` CRUD via the `/api/agent/*` proxy paths (backend
   persists them in the LangGraph store; skill changes apply on the next run,
   tool changes after `POST /agent/tools/reconnect`). The web-search toggle is
   also live — it is sent as `enableSearch` in every `/api/chat` request body
@@ -184,24 +193,23 @@ lib/
   (enabled/max timeout/inherit env), the **connection policy**
   (`connections.fallback_env`), and the **HITL gate** (`hitl.interrupt_on` —
   which tools pause for human approval) are live too — admin-only
-  `GET|PUT /settings`
-  proxied at `app/api/settings/` (DB `app_settings` table wins over .env;
-  `source: db|env` in the response drives the badges; every mutation rebuilds
-  the backend's agent graphs, so changes apply on the next run). Saved
-  provider **connections** (llm/embeddings/mcp/weaviate/searxng, one default
-  per kind, write-only tokens) are managed in the Model tab via
-  `app/api/connections` → backend `/connections`; without a default `llm`
+  `GET|PUT /settings` proxied under `/api/settings` (DB `app_settings` table
+  wins over .env; `source: db|env` in the response drives the badges; every
+  mutation rebuilds the backend's agent graphs, so changes apply on the next
+  run). Saved provider **connections** (llm/embeddings/mcp/weaviate/searxng,
+  one default per kind, write-only tokens) are managed in the Model tab via
+  `/api/connections` → backend `/connections`; without a default `llm`
   connection the agent fails loudly unless `.env` fallback is enabled. The
   **default model** (backend `llm_model_name()`) is just the default `llm`
-  connection's `extra.model` — there is no dedicated endpoint, so the
-  Model tab lets admins pick one per row (hover "Set default" in the
+  connection's `extra.model` — there is no dedicated endpoint, so the Model
+  tab lets admins pick one per row (hover "Set default" in the
   available-models list) which saves through `PUT /connections/{name}`
   with `extra.model` set and mirrors the result into the local
   `settings.model`. Non-admins see the current default as a "Default"
-  badge only. The remaining settings (model, prompt) are still local-only
-  until backend `/settings` endpoints exist. Note: the knowledge-base tab
-  calls `/api/agent/knowledge-bases`, which the backend has **not**
-  implemented yet — those fetches 404 until the backend adds the endpoints.
+  badge only. The remaining settings (model, prompt) are still local-only.
+  Note: the knowledge-base tab calls `/api/agent/knowledge-bases`, which
+  the backend has **not** implemented yet — those fetches 404 until the
+  backend adds the endpoints.
 - `/agent/*` endpoints are **admin-only** on the backend, so the Skills and
   Tools tabs are admin-gated in the UI (same as Users).
 - Tabs: General | Model | Skills | Tools | Account (+ Users for admins).
@@ -215,16 +223,18 @@ lib/
 
 ## Auth
 
-- Login/register pages live outside the `(chat)` route group
-  (`app/login`, `app/register`). Tokens: access + refresh JWTs in
-  localStorage (`app-auth-token`, `app-refresh-token`). `fetchWithAuth`
-  auto-refreshes on 401 (single retry via `POST /api/auth/refresh`) and
-  `use-auth` tries a refresh before signing out on mount.
+- Login/register are React Router routes (`/login`, `/register`) that render
+  outside the shell layout. Tokens: access + refresh JWTs in localStorage
+  (`app-auth-token`, `app-refresh-token`). `fetchWithAuth` auto-refreshes on
+  401 (single retry via `POST /api/auth/refresh`) and `use-auth` tries a
+  refresh before signing out on mount. `AuthGate` (route layout inside the
+  shell) redirects signed-out visitors to `/login`.
 
 ## Conventions
 
 - **Code style:** biome (line width, imports, organize). Type hints on all
-  public functions; `"use client"` on any file using hooks/events.
+  public functions; `"use client"` on any file using hooks/events (kept from
+  the Next era — harmless in Vite).
 - **shadcn skill rules apply** (`.agents/skills/shadcn/SKILL.md`): semantic
   colors only (`bg-card`, `text-muted-foreground`…), `gap-*` not `space-y-*`,
   `size-*` for equal dims, `cn()` for conditional classes, `FieldGroup` +
@@ -237,6 +247,10 @@ lib/
 - **New AI SDK protocol work:** the chunk schemas are in
   `node_modules/ai/dist/index.js` (`uiMessageChunkSchema`) — verify chunk
   field names there before emitting/consuming new chunk types.
+- **Routing:** keep routes in `src/router.tsx`; navigation from components
+  via react-router's `useNavigate`/`useLocation`/`Link` (never `window
+  .location`). New pages go under `src/pages/`. The settings page is
+  lazy-loaded — keep heavy pages behind `React.lazy`.
 
 ## Git workflow
 

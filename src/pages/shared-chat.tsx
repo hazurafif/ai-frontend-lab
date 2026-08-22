@@ -1,14 +1,14 @@
 "use client";
 
 import { formatDistanceToNow } from "date-fns";
-import Link from "next/link";
-import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
+import { Link, useParams } from "react-router";
 import {
   MessageContent,
   MessageResponse,
 } from "@/components/ai-elements/message";
 import { LoaderIcon, SparklesIcon } from "@/components/chat/icons";
+import { BASE_PATH } from "@/lib/env";
 import { cn, generateUUID } from "@/lib/utils";
 
 // ---------------------------------------------------------------------------
@@ -40,8 +40,6 @@ type NormalizedMessage = {
   reasoning: string;
   toolCalls: Array<{ id: string; name: string; args: unknown }>;
 };
-
-const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 
 function textFromContent(content: SharedRawMessage["content"]): string {
   if (typeof content === "string") {
@@ -195,13 +193,14 @@ function SharedMessage({ message }: { message: NormalizedMessage }) {
 
 export default function SharedChatPage() {
   const params = useParams<{ shareId: string }>();
+  const shareId = params.shareId ?? "";
   const [chat, setChat] = useState<SharedChat | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
 
-    fetch(`${BASE_PATH}/api/share/shared/${params.shareId}`)
+    fetch(`${BASE_PATH}/api/share/shared/${shareId}`)
       .then(async (response) => {
         if (!response.ok) {
           const body = (await response.json().catch(() => null)) as {
@@ -229,7 +228,7 @@ export default function SharedChatPage() {
     return () => {
       cancelled = true;
     };
-  }, [params.shareId]);
+  }, [shareId]);
 
   if (error) {
     return (
@@ -238,7 +237,7 @@ export default function SharedChatPage() {
         <p className="max-w-sm text-sm text-muted-foreground">{error}</p>
         <Link
           className="text-sm text-foreground underline underline-offset-3 transition-colors hover:text-muted-foreground"
-          href="/"
+          to="/"
         >
           Go to AI Chat
         </Link>
@@ -288,7 +287,7 @@ export default function SharedChatPage() {
           </span>
           <Link
             className="text-xs text-muted-foreground underline underline-offset-3 transition-colors hover:text-foreground"
-            href="/"
+            to="/"
           >
             Create your own with AI Chat
           </Link>

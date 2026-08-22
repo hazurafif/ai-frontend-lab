@@ -1,6 +1,6 @@
 /// <reference lib="esnext" />
 /// <reference lib="webworker" />
-import { defaultCache } from "@serwist/turbopack/worker";
+import { defaultCache } from "@serwist/vite/worker";
 import type { PrecacheEntry, SerwistGlobalConfig } from "serwist";
 import { NetworkOnly, Serwist } from "serwist";
 
@@ -35,7 +35,7 @@ const serwist = new Serwist({
   fallbacks: {
     entries: [
       {
-        url: "/~offline",
+        url: "/offline",
         matcher({ request }) {
           return request.destination === "document";
         },

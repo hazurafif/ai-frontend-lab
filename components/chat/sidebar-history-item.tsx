@@ -1,8 +1,8 @@
 "use client";
 
 import { LoaderCircleIcon, PencilIcon } from "lucide-react";
-import Link from "next/link";
 import { memo, useCallback } from "react";
+import { Link } from "react-router";
 import { toast } from "@/components/chat/toast";
 import { createChatShare } from "@/lib/share";
 import type { ThreadStatus } from "@/lib/threads";
@@ -82,7 +82,7 @@ const PureChatItem = ({
       <SidebarMenuButton
         className="h-10 rounded-none text-[13px] text-sidebar-foreground/50 transition-all duration-150 hover:bg-transparent hover:text-sidebar-foreground data-active:bg-transparent data-active:font-normal data-active:text-sidebar-foreground/50 data-[active=true]:text-sidebar-foreground data-[active=true]:font-medium data-[active=true]:border-b data-[active=true]:border-dashed data-[active=true]:border-sidebar-foreground/50 md:h-8"
         isActive={isActive}
-        render={<Link href={`/chat/${chat.id}`} onClick={closeMobile} />}
+        render={<Link to={`/chat/${chat.id}`} onClick={closeMobile} />}
       >
         {status === "running" && (
           <span

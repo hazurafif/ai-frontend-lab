@@ -1,9 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { fetchWithAuth } from "@/lib/auth";
 import { SETTINGS_CHANGED_EVENT } from "@/lib/constants";
 import { type ChatModel, chatModelsFromSource } from "@/lib/models";
+import {
+  fetchDefaultConnectionModels,
+  fetchModelsFromSource,
+} from "@/lib/models-client";
 import {
   type AllowedModels,
   type BackendModelsSource,
@@ -144,39 +147,18 @@ export function useModelCatalog(): {
         return;
       }
 
-      // Legacy fallback: the saved modelConnection (POST) or the
-      // server-configured env source / default connection (GET) via
-      // /api/models. Mount-gated read (hydration rule): localStorage is
-      // only ever touched inside effects, never during render. fetchWithAuth
-      // attaches the Bearer token so the GET fallback can read the backend.
+      // Legacy fallback (client-side — the /api/models route no longer
+      // exists, docs/migration.md decision 2): the saved modelConnection
+      // (its key is client-provided) or the backend's current default `llm`
+      // connection. localStorage is only ever touched inside effects.
       const connection = loadSettings().modelConnection;
-      const request = connection
-        ? fetchWithAuth("/api/models", {
-            body: JSON.stringify(connection),
-            headers: { "Content-Type": "application/json" },
-            method: "POST",
-          })
-        : fetchWithAuth("/api/models");
+      const body = connection
+        ? await fetchModelsFromSource(connection).catch(() => null)
+        : await fetchDefaultConnectionModels();
 
       let fetched: ChatModel[] | null = null;
-      try {
-        const res = await request;
-        if (res.ok) {
-          const body = (await res.json()) as {
-            models?: Array<{ id: string; name: string }>;
-            provider?: string;
-          };
-          if (body.models?.length) {
-            fetched = chatModelsFromSource(
-              body.provider ?? "openai",
-              body.models,
-            );
-          }
-        }
-      } catch {
-        // Leave models as-is (or null) — callers fall back to the built-in
-        // list; the settings page's Test connection reports the error.
-        fetched = null;
+      if (body?.models?.length) {
+        fetched = chatModelsFromSource(body.provider ?? "openai", body.models);
       }
 
       // The caller's effective restriction filters the picker for
