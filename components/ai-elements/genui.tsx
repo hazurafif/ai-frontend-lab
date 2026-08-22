@@ -31,6 +31,8 @@ import {
   Renderer,
 } from "@openuidev/react-lang";
 import type { ActionEvent, ParseResult } from "@openuidev/react-lang";
+import { ThemeProvider as OpenUIThemeProvider } from "@openuidev/react-ui";
+import { useTheme } from "next-themes";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { useActiveChat } from "@/hooks/use-active-chat";
 import { mergedOpenuiLibrary } from "@/lib/genui-library";
@@ -78,6 +80,13 @@ export function GenUIContent({
 }) {
   const { sendMessage, status } = useActiveChat();
   const [parseResult, setParseResult] = useState<ParseResult | null>(null);
+
+  // The openui stylesheet only follows `prefers-color-scheme` — the app's
+  // theme is a `.dark` class (next-themes). Mounting their ThemeProvider
+  // with the resolved app mode injects the matching `--openui-*` tokens on
+  // body, so GenUI follows the app toggle instead of the OS setting.
+  const { resolvedTheme } = useTheme();
+  const openuiMode = resolvedTheme === "dark" ? "dark" : "light";
 
   // Fenced ```openui blocks are GenUI intent: extract the inner program
   // (the fence markers are markdown, not Lang). An open ```open… fence
@@ -132,12 +141,14 @@ export function GenUIContent({
   }
 
   return (
-    <Renderer
-      isStreaming={isStreaming}
-      library={mergedOpenuiLibrary}
-      onAction={handleAction}
-      onParseResult={setParseResult}
-      response={program}
-    />
+    <OpenUIThemeProvider mode={openuiMode}>
+      <Renderer
+        isStreaming={isStreaming}
+        library={mergedOpenuiLibrary}
+        onAction={handleAction}
+        onParseResult={setParseResult}
+        response={program}
+      />
+    </OpenUIThemeProvider>
   );
 }
