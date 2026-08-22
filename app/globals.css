@@ -1,4 +1,9 @@
+@layer theme, base, openui, components, utilities;
 @import "tailwindcss";
+/* OpenUI (GenUI) component styles — layered so Tailwind's component and
+   utility classes can override them (docs: put these imports in the one
+   global entry point, keep the layer-order line above everything). */
+@import "@openuidev/react-ui/layered/styles/index.css";
 
 @source "../node_modules/streamdown/dist/index.js";
 

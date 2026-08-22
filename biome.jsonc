@@ -12,6 +12,7 @@
       "!node_modules",
       "!node_modules",
       "!.pi-subagents",
+      "!genui-spec",
       "!components/ai-elements",
       "!components/ui",
       "!app/globals.css",

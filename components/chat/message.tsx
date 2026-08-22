@@ -40,6 +40,7 @@ import {
   embedCitationMarkers,
   extractSearchSources,
 } from "../ai-elements/citation-ref";
+import { GenUIContent } from "../ai-elements/genui";
 import { InterruptCard } from "../ai-elements/interrupt-card";
 import {
   MessageAction,
@@ -206,28 +207,55 @@ function ToolPart({ part }: { part: ToolUIPart }) {
  */
 const TextPart = memo(function TextPart({
   citationProps,
+  isStreaming,
   role,
   text,
 }: {
   citationProps: ReturnType<typeof citationStreamdownProps>;
+  isStreaming: boolean;
   role: ChatMessage["role"];
   text: string;
 }) {
+  const isUser = role === "user";
   const className = cn("max-md:text-[15px] text-[13px] leading-[1.65]", {
     "w-fit max-w-[min(80%,56ch)] overflow-hidden break-words rounded-2xl rounded-br-lg border border-border/30 bg-gradient-to-br from-secondary to-muted px-3.5 py-2 shadow-[var(--shadow-card)]":
-      role === "user",
+      isUser,
   });
-  const rendered = useMemo(
-    () =>
-      role === "assistant"
-        ? embedCitationMarkers(sanitizeText(text))
-        : sanitizeText(text),
-    [role, text],
-  );
-  return (
+  const rendered = useMemo(() => {
+    // Shiki's bundle has no `openui` grammar (and no partial-token variant
+    // like ```open either): a fence starting with ```open that reaches
+    // Streamdown fails to highlight and logs a console ShikiError. Fenced
+    // openui blocks are GenUI programs (GenUIContent extracts them into the
+    // Renderer — including while streaming), so in this markdown path demote
+    // any stragglers — user-pasted snippets, unclosed fences, prose samples
+    // — to an unlabeled fence, which renders as a plain code block and never
+    // reaches Shiki's language resolution. The broad prefix covers streamed
+    // partial tokens (```o, ```op, ```open, ```openui).
+    const defused = text.replace(
+      /```o(?:p(?:e(?:n(?:u(?:i)?)?)?)?)?[^\n]*/g,
+      "```",
+    );
+    return isUser
+      ? sanitizeText(defused)
+      : embedCitationMarkers(sanitizeText(defused));
+  }, [isUser, text]);
+  // Markdown rendering — used as-is for user bubbles and as the fallback
+  // for assistant text that isn't (or no longer parses as) OpenUI Lang.
+  const markdown = (
     <MessageContent className={className} data-testid="message-content">
       <MessageResponse {...citationProps}>{rendered}</MessageResponse>
     </MessageContent>
+  );
+  if (isUser || text.trim().length === 0) {
+    return markdown;
+  }
+  // Assistant text may be OpenUI Lang (backend GenUI instruction): route it
+  // through the OpenUI renderer whenever it starts like a statement; prose
+  // and unparseable streams fall back to the markdown render above. The
+  // openui library owns its own typography, so the condensed prose classes
+  // deliberately stay on the markdown fallback only.
+  return (
+    <GenUIContent fallback={markdown} isStreaming={isStreaming} text={text} />
   );
 });
 
@@ -379,6 +407,7 @@ const PreviewMessage = memo(function PreviewMessage({
       return (
         <TextPart
           citationProps={citationProps}
+          isStreaming={isStreaming}
           key={key}
           role={message.role}
           text={part.text}

@@ -133,6 +133,25 @@ lib/
   AbortController is created inside the effect (per setup) so StrictMode's
   setup→cleanup→setup can't abort it, and tool-result re-pushes compare
   envelope CONTENT (JSON), not object reference (chat re-creates parts).
+- **GenUI (OpenUI Lang):** assistant text that is (or looks like) OpenUI
+  Lang — starts with a statement (`root = ...`, `$var = ...`) or a fenced
+  ```` ```openui ```` block — is rendered by
+  `components/ai-elements/genui.tsx` through `@openuidev/react-lang`'s
+  `Renderer` + the **merged** library in `lib/genui-library.ts`
+  (general-purpose `openuiLibrary` incl. `Stack`/`Modal` + chat-only
+  blocks; shared names prefer general; root `Stack`). Everything else
+  (prose) keeps the Streamdown markdown pipeline — the fallback also
+  demotes ```` ```openui ```` fences to unlabeled ones so Shiki never sees
+  the unknown `openui` grammar. Parse failures fall back to markdown.
+  Interactive actions: `@ToAssistant("...")` → `sendMessage` (via
+  `ActiveChatContext`), `@OpenUrl` → `window.open`. No `Query()`/
+  `Mutation()` client-side (no toolProvider) — the model must only render
+  data already in context. **Version sync (do not drift):** the backend
+  system prompt MUST be generated from this same merged library — run
+  `node scripts/tools/genui-spec.mjs` (writes `genui-spec/` artifacts,
+  pins `GENUI_LIBRARY_VERSION` in `lib/genui-library.ts`) and ship the
+  regenerated `system-prompt.txt` to the backend whenever
+  `@openuidev/react-ui` bumps.
 - HITL interrupts arrive as `custom` parts with `kind: "app.interrupt"`
   (backend nests `threadId`/`interrupts` under `providerMetadata.app` — flat
   fields fail the strict `uiMessageChunkSchema` and kill the stream) →
@@ -173,8 +192,14 @@ lib/
   per kind, write-only tokens) are managed in the Model tab via
   `app/api/connections` → backend `/connections`; without a default `llm`
   connection the agent fails loudly unless `.env` fallback is enabled. The
-  remaining settings (model, prompt) are still local-only until backend
-  `/settings` endpoints exist. Note: the knowledge-base tab
+  **default model** (backend `llm_model_name()`) is just the default `llm`
+  connection's `extra.model` — there is no dedicated endpoint, so the
+  Model tab lets admins pick one per row (hover "Set default" in the
+  available-models list) which saves through `PUT /connections/{name}`
+  with `extra.model` set and mirrors the result into the local
+  `settings.model`. Non-admins see the current default as a "Default"
+  badge only. The remaining settings (model, prompt) are still local-only
+  until backend `/settings` endpoints exist. Note: the knowledge-base tab
   calls `/api/agent/knowledge-bases`, which the backend has **not**
   implemented yet — those fetches 404 until the backend adds the endpoints.
 - `/agent/*` endpoints are **admin-only** on the backend, so the Skills and

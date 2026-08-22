@@ -12,6 +12,8 @@
   "dependencies": {
     "@ai-sdk/react": "4.0.16",
     "@base-ui/react": "^1.7.0",
+    "@openuidev/react-lang": "^0.2.14",
+    "@openuidev/react-ui": "^0.13.8",
     "@shadcn/react": "^0.3.0",
     "@streamdown/cjk": "^1.0.3",
     "@streamdown/code": "^1.0.3",
